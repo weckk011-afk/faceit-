@@ -61,6 +61,44 @@ class RegisterButtonView(discord.ui.View):
         await interaction.response.send_modal(RegisterModal(self.cog))
 
 
+class ConfirmResetView(discord.ui.View):
+    def __init__(self, cog: "Registration"):
+        super().__init__(timeout=30)
+        self.cog = cog
+
+    @discord.ui.button(label="⚠️ Да, снять регистрацию у всех", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("Только админ может это подтвердить.", ephemeral=True)
+            return
+
+        db = self.cog.db
+        count = db.delete_all_players(interaction.guild_id)
+
+        role = discord.utils.get(interaction.guild.roles, name=config.PLAYER_ROLE_NAME)
+        removed_roles = 0
+        if role is not None:
+            for member in list(role.members):
+                try:
+                    await member.remove_roles(role, reason="Массовый сброс регистрации")
+                    removed_roles += 1
+                except discord.HTTPException:
+                    pass
+
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content=f"✅ Готово. Удалено профилей: **{count}**. Снята роль у **{removed_roles}** участников.",
+            view=self,
+        )
+
+    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Отменено, ничего не удалено.", view=self)
+
+
 class Registration(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -90,6 +128,16 @@ class Registration(commands.Cog):
                 await member.add_roles(role, reason="Успешная регистрация")
             except discord.Forbidden:
                 pass  # у бота не хватает прав/роль бота ниже целевой — админ должен поправить вручную
+
+    @app_commands.command(name="resetregistrations", description="Снять регистрацию у ВСЕХ игроков сервера (админ)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def resetregistrations(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "⚠️ Это удалит рейтинг и регистрацию **у всех** игроков сервера и снимет роль "
+            f"\"{config.PLAYER_ROLE_NAME}\". Действие необратимо. Подтверди:",
+            view=ConfirmResetView(self),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="postregister", description="Опубликовать кнопку регистрации в этом канале (админ)")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -177,4 +225,3 @@ async def setup(bot: commands.Bot):
     cog = Registration(bot)
     await bot.add_cog(cog)
     bot.add_view(RegisterButtonView(cog))
-
