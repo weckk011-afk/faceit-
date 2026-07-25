@@ -17,31 +17,12 @@ class Registration(commands.Cog):
             player = self.db.get_player(guild_id, user.id)
         return player
 
-    async def get_or_create_player_role(self, guild: discord.Guild) -> discord.Role:
-        role = discord.utils.get(guild.roles, name=config.PLAYER_ROLE_NAME)
-        if role is None:
-            role = await guild.create_role(
-                name=config.PLAYER_ROLE_NAME,
-                reason="Роль для зарегистрированных игроков (создана автоматически ботом)",
-            )
-        return role
-
-    async def grant_player_role(self, interaction: discord.Interaction):
-        role = await self.get_or_create_player_role(interaction.guild)
-        member = interaction.user
-        if isinstance(member, discord.Member) and role not in member.roles:
-            try:
-                await member.add_roles(role, reason="Успешная регистрация в /register")
-            except discord.Forbidden:
-                pass  # у бота не хватает прав/роль бота ниже целевой — админ должен поправить вручную
-
     @app_commands.command(name="register", description="Зарегистрироваться в системе рейтинга")
     @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2 (обязательно)")
     async def register(self, interaction: discord.Interaction, standoff_id: str):
         existing = self.db.get_player(interaction.guild_id, interaction.user.id)
         if existing:
             self.db.set_standoff_id(interaction.guild_id, interaction.user.id, standoff_id)
-            await self.grant_player_role(interaction)
             await interaction.response.send_message(
                 "Ты уже зарегистрирован. Используй /profile чтобы посмотреть статистику "
                 "или /setuid чтобы обновить ник в Standoff 2.",
@@ -51,7 +32,6 @@ class Registration(commands.Cog):
         self.db.create_player(
             interaction.guild_id, interaction.user.id, interaction.user.display_name, standoff_id
         )
-        await self.grant_player_role(interaction)
         extra = f" Ник в Standoff 2: **{standoff_id}**."
         await interaction.response.send_message(
             f"Готово! Ты зарегистрирован со стартовым рейтингом **{config.START_ELO}**.{extra}",
