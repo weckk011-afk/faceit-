@@ -92,22 +92,20 @@ async def generate_profile_card(member, player: dict) -> io.BytesIO:
     draw.text((CARD_W - 48 - elo_w, 45), elo_text, font=font_elo, fill=ACCENT)
     label_w = _text_w(draw, elo_label, font_stat_label)
     draw.text((CARD_W - 48 - label_w, 100), elo_label, font=font_stat_label, fill=TEXT_SUB)
-
-    # ---------- ÑÑÐ°ÑÑ ÑÐ½Ð¸Ð·Ñ ----------
+    # ---------- статы снизу ----------
     wins = player["wins"]
     losses = player["losses"]
-    kills = player["kills"]
-    deaths = player["deaths"]
-    kd = round(kills / deaths, 2) if deaths > 0 else float(kills)
     total = wins + losses
     winrate = round(wins / total * 100, 1) if total else 0.0
+    wl_ratio = round(wins / losses, 2) if losses > 0 else float(wins)
 
     stats = [
-        ("Matches", str(player["matches_played"])),
+        ("Матчи", str(player["matches_played"])),
         ("W / L", f"{wins} / {losses}"),
         ("Winrate", f"{winrate}%"),
-        ("K / D", f"{kills} / {deaths}"),
-        ("KD Ratio", f"{kd}"),
+        ("W/L Ratio", f"{wl_ratio}"),
+    ]
+
     ]
 
     stat_y = 220
