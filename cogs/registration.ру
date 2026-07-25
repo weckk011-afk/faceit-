@@ -3,7 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
-from utils.profile_card import generate_profile_card
 
 
 class Registration(commands.Cog):
@@ -68,23 +67,6 @@ class Registration(commands.Cog):
             f"Ник в Standoff 2 обновлён: **{standoff_id}**.", ephemeral=True
         )
 
-    @app_commands.command(name="setkd", description="Указать свою статистику килы/смерти (K/D)")
-    @app_commands.describe(kills="Количество килов (суммарно)", deaths="Количество смертей (суммарно)")
-    async def setkd(self, interaction: discord.Interaction, kills: int, deaths: int):
-        if kills < 0 or deaths < 0:
-            await interaction.response.send_message("Числа не могут быть отрицательными.", ephemeral=True)
-            return
-        player = self.db.get_player(interaction.guild_id, interaction.user.id)
-        if player is None:
-            await interaction.response.send_message(
-                "Сначала зарегистрируйся: /register", ephemeral=True
-            )
-            return
-        self.db.set_kd(interaction.guild_id, interaction.user.id, kills, deaths)
-        await interaction.response.send_message(
-            f"Обновлено: K/D {kills}/{deaths}.", ephemeral=True
-        )
-
     @app_commands.command(name="profile", description="Показать профиль игрока")
     @app_commands.describe(user="Чей профиль показать (по умолчанию — твой)")
     async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
@@ -97,10 +79,23 @@ class Registration(commands.Cog):
             )
             return
 
-        await interaction.response.defer()
-        buffer = await generate_profile_card(target, player)
-        file = discord.File(buffer, filename="profile.png")
-        await interaction.followup.send(file=file)
+        total = player["wins"] + player["losses"]
+        winrate = (player["wins"] / total * 100) if total else 0.0
+
+        embed = discord.Embed(
+            title=f"Профиль — {player['nickname']}",
+            color=discord.Color.blurple(),
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        if player["standoff_id"]:
+            embed.add_field(name="Ник в Standoff 2", value=player["standoff_id"], inline=False)
+        embed.add_field(name="Рейтинг (ELO)", value=str(player["elo"]), inline=True)
+        embed.add_field(name="Матчей", value=str(player["matches_played"]), inline=True)
+        embed.add_field(name="Winrate", value=f"{winrate:.1f}%", inline=True)
+        embed.add_field(name="Победы", value=str(player["wins"]), inline=True)
+        embed.add_field(name="Поражения", value=str(player["losses"]), inline=True)
+
+        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="leaderboard", description="Топ игроков по рейтингу")
     async def leaderboard(self, interaction: discord.Interaction):
