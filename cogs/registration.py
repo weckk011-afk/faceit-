@@ -67,9 +67,6 @@ class Registration(commands.Cog):
         await interaction.response.send_message(
             f"Ник в Standoff 2 обновлён: **{standoff_id}**.", ephemeral=True
         )
-        await interaction.response.send_message(
-            f"Ник в Standoff 2 обновлён: **{standoff_id}**"
-        )
 
     @app_commands.command(name="setwl", description="Установить количество побед и поражений")
     @app_commands.describe(wins="Количество побед", losses="Количество поражений")
@@ -93,6 +90,23 @@ class Registration(commands.Cog):
         )
 
     @app_commands.command(name="profile", description="Показать профиль")
+    @app_commands.describe(user="Чей профиль показать")
+    async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
+        target = user or interaction.user
+        player = self.db.get_player(interaction.guild_id, target.id)
+
+        if player is None:
+            await interaction.response.send_message(
+                f"**{target.display_name}** ещё не зарегистрирован!",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+        buffer = await generate_profile_card(target, player)
+        file = discord.File(buffer, filename="profile.png")
+        await interaction.followup.send(file=file)
+
     @app_commands.command(name="leaderboard", description="Топ игроков по рейтингу")
     async def leaderboard(self, interaction: discord.Interaction):
         rows = self.db.get_leaderboard(interaction.guild_id, limit=10)
