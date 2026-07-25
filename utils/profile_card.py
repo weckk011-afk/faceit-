@@ -103,7 +103,7 @@ async def generate_profile_card(member, player: dict) -> io.BytesIO:
     winrate = round(wins / total * 100, 1) if total else 0.0
 
     stats = [
-        ("ÐÐ°ÑÑÐ¸", str(player["matches_played"])),
+        ("Matches", str(player["matches_played"])),
         ("W / L", f"{wins} / {losses}"),
         ("Winrate", f"{winrate}%"),
         ("K / D", f"{kills} / {deaths}"),
