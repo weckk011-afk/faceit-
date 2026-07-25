@@ -151,7 +151,6 @@ class Registration(commands.Cog):
         view = RegisterButtonView(self)
         await interaction.channel.send(embed=embed, view=view)
         await interaction.response.send_message("Кнопка регистрации опубликована.", ephemeral=True)
-
       @app_commands.command(name="setuid", description="Указать/обновить свой ник или ID в Standoff 2")
     @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2")
     async def setuid(self, interaction: discord.Interaction, standoff_id: str):
@@ -160,7 +159,6 @@ class Registration(commands.Cog):
         await interaction.response.send_message(
             f"Ник в Standoff 2 обновлён: **{standoff_id}**.", ephemeral=True
         )
-
     @app_commands.command(name="profile", description="Показать профиль игрока")
     @app_commands.describe(user="Чей профиль показать (по умолчанию — твой)")
     async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
