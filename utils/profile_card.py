@@ -97,21 +97,27 @@ async def generate_profile_card(member, player: dict) -> io.BytesIO:
     # ---------- статы снизу ----------
     wins = player["wins"]
     losses = player["losses"]
-    total = wins + losses
+    kills = player["kills"]
+    deaths = player["deaths"]
+    
+    total_matches = wins + losses
+    
+    # Защита от деления на ноль
+    winrate = round(wins / total_matches * 100, 1) if total_matches > 0 else 0.0
+    kd = round(kills / deaths, 2) if deaths > 0 else float(kills)
 
-    winrate = round(wins / total * 100, 1) if total > 0 else 0.0
-    wl_ratio = round(wins / losses, 2) if losses > 0 else 0.0
-
+    # Список характеристик для вывода
     stats = [
-        ("Матчи", str(total)),
-        ("W / L", f"{wins} / {losses}"),
+        ("Матчи", str(total_matches)),
         ("Winrate", f"{winrate}%"),
-        ("W/L Ratio", f"{wl_ratio}"),
+        ("W / L", f"{wins} / {losses}"),
+        ("K / D", str(kd)),
     ]
 
     stat_y = 220
     stat_x = text_x
     gap = (CARD_W - 48 - text_x) // len(stats)
+    
     for label, value in stats:
         draw.text((stat_x, stat_y), value, font=font_stat_val, fill=TEXT_MAIN)
         draw.text((stat_x, stat_y + 46), label, font=font_stat_label, fill=TEXT_SUB)
