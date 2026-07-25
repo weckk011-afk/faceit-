@@ -1,138 +1,115 @@
 import asyncio
 import datetime
-import logging
-
 import discord
 from discord.ext import commands
 
+# Предполагается, что конфиг импортируется так же, как в твоем проекте
 import config
-from database import Database
-
-logging.basicConfig(level=logging.INFO)
-
-INTENTS = discord.Intents.default()
-INTENTS.members = True
-INTENTS.voice_states = True
-INTENTS.message_content = True
-
-EXTENSIONS = [
-    "cogs.registration",
-    "cogs.queue_cog",
-    "cogs.match_cog",
-    "cogs.moderation",
-]
-
-# ID каналов для логов
-LOG_CHANNELS = {
-    "all": 1530656949593575565,
-    "roles": 1530656611146661938,
-    "messages": 1530656763316277258,
-    "voice": 1530656667492941886,
-}
 
 
-class FaceitLikeBot(commands.Bot):
+# --- РЕГИСТРАЦИЯ CYBER FACEIT ---
 
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=INTENTS)
-        self.db = Database()
+# 1. Всплывающее окно (Modal) для заполнения данных
+class RegistrationModal(discord.ui.Modal, title="Регистрация на Cyber Faceit"):
+    def init(self):
+        super().init()
 
-    async def setup_hook(self):
-        for ext in EXTENSIONS:
-            await self.load_extension(ext)
-        synced = await self.tree.sync()
-        logging.info(f"Синхронизировано {len(synced)} slash-команд.")
-
-    async def on_ready(self):
-        logging.info(f"Бот запущен как {self.user} (id={self.user.id})")
-
-
-bot = FaceitLikeBot()
-
-
-def _get_log_channel(guild: discord.Guild, log_type: str):
-    channel_id = LOG_CHANNELS.get(log_type)
-    if channel_id:
-        return guild.get_channel(channel_id)
-    return None
-
-
-# --- ЛОГИРОВАНИЕ СООБЩЕНИЙ ---
-@bot.event
-async def on_message_delete(message: discord.Message):
-    if message.author.bot or not message.guild:
-        return
-    channel = _get_log_channel(message.guild, "messages")
-    all_channel = _get_log_channel(message.guild, "all")
-    embed = discord.Embed(
-        title="🗑️ Сообщение удалено",
-        color=discord.Color.red(),
-        timestamp=datetime.datetime.now(),
+    nick = discord.ui.TextInput(
+        label="Игровой никнейм",
+        placeholder="Введите ваш ник в Standoff 2...",
+        min_length=2,
+        max_length=20,
+        required=True,
     )
-    embed.add_field(name="Автор", value=message.author.mention, inline=True)
-    embed.add_field(name="Канал", value=message.channel.mention, inline=True)
-    if message.content:
-        embed.add_field(name="Содержание", value=message.content[:1024], inline=False)
-    embed.set_footer(text=f"ID пользователя: {message.author.id}")
-    for target in [channel, all_channel]:
-        if target:
-            await target.send(embed=embed)
 
+    game_id = discord.ui.TextInput(
+        label="ID в игре",
+        placeholder="Например: 12345678",
+        min_length=6,
+        max_length=12,
+        required=True,
+    )
 
-@bot.event
-async def on_message_edit(before: discord.Message, after: discord.Message):
-    if before.author.bot or not before.guild or before.content == after.content:
-        return
-    channel = _get_log_channel(before.guild, "messages")
-    all_channel = _get_log_channel(before.guild, "all")
-    embed = discord.Embed(
-        title="✏️ Сообщение отредактировано",
-        color=discord.Color.orange(),
-        timestamp=datetime.datetime.now(),
-    )
-    embed.add_field(name="Автор", value=before.author.mention, inline=True)
-    embed.add_field(name="Канал", value=before.channel.mention, inline=True)
-    embed.add_field(
-        name="Было",
-        value=before.content[:1024] if before.content else "*Пусто/Медиа*",
-        inline=False,
-    )
-    embed.add_field(
-        name="Стало",
-        value=after.content[:1024] if after.content else "*Пусто/Медиа*",
-        inline=False,
-    )
-    embed.set_footer(text=f"ID пользователя: {before.author.id}")
-    for target in [channel, all_channel]:
-        if target:
-            await target.send(embed=embed)
+    async def on_submit(self, interaction: discord.Interaction):
+        # ⚠️ Укажи ID роли, которую бот должен выдавать после регистрации
+        ROLE_ID = 123456789012345678  # 👈 Замени на ID твоей роли игрока
 
+        # Изменяем никнейм на сервере: Ник | ID
+        try:
+            await interaction.user.edit(
+                nick=f"{self.nick.value} | {self.game_id.value}"[:32]
+            )
+        except discord.Forbidden:
+            pass  # Игнорируем, если у бота нет прав менять ник админам/создателю
 
-# --- ЛОГИРОВАНИЕ РОЛЕЙ ---
-@bot.event
-async def on_member_update(before: discord.Member, after: discord.Member):
-    if before.roles == after.roles:
-        return
-    guild = after.guild
-    channel = _get_log_channel(guild, "roles")
-    all_channel = _get_log_channel(guild, "all")
-    added_roles = [r for r in after.roles if r not in before.roles]
-    removed_roles = [r for r in before.roles if r not in after.roles]
-    embed = discord.Embed(
-        title="🛡️ Изменение ролей",
-        color=discord.Color.blue(),
-        timestamp=datetime.datetime.now(),
-    )
-    embed.add_field(name="Пользователь", value=after.mention, inline=False)
-    if added_roles:
-        embed.add_field(
-            name="➕ Выданы роли",
-            value=", ".join([r.mention for r in added_roles]),
-            inline=False,
+        # Выдаем роль
+        role = interaction.guild.get_role(ROLE_ID)
+        if role:
+            await interaction.user.add_roles(role)
+
+        # Отправляем сообщение, которое видит только сам пользователь
+        await interaction.response.send_message(
+            f"✅ Регистрация пройдена!\nНик: {self.nick.value} | ID: {self.game_id.value}",
+            ephemeral=True,
         )
-    if removed_roles:
-        embed.add_field(
-            name="➖ Сняты роли",
+
+
+# 2. Инлайн-кнопка под сообщением
+class RegistrationView(discord.ui.View):
+    def init(self):
+        super().init(timeout=None)  # timeout=None делает кнопку бессрочной
+
+    @discord.ui.button(
+        label="Зарегистрироваться",
+        style=discord.ButtonStyle.green,
+        custom_id="cyber_reg_permanent_btn",  # Обязательно для сохранения кнопки после перезапуска
+    )
+    async def open_modal(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_modal(RegistrationModal())
+
+
+# --- ИНИЦИАЛИЗА БОТА ---
+intents = discord.Intents.default()
+intents.members = True  # Необходимы права на просмотр и изменение участников
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+REGISTRATION_CHANNEL_ID = 1530691081539289348  # Твой канал для регистрации
+
+
+# --- СОБЫТИЕ ЗАПУСКА БОТА ---
+@bot.event
+async def on_ready():
+    # Регистрируем View, чтобы кнопка работала после любых перезапусков бота
+    bot.add_view(RegistrationView())
+    print(f"Бот {bot.user} успешно запущен!")
+
+    # Автоматически отправляем сообщение с кнопкой в указанный канал
+    channel = bot.get_channel(REGISTRATION_CHANNEL_ID)
+    if channel:
+        embed = discord.Embed(
+            title="🏆 Cyber Faceit — Standoff 2",
+            description=(
+                "Для участия в матчах и поиске комнат необходимо пройти регистрацию.\n\n"
+                "Нажмите на кнопку «Зарегистрироваться» ниже, чтобы открыть форму и ввести свои данные."
+            ),
+            color=0xFF5500,
+        )
+        embed.set_footer(text="Cyber Faceit Matchmaking System")
+        await channel.send(embed=embed, view=RegistrationView())
+
+
+# Вспомогательная функция из твоего кода
+def _get_log_channel(guild, type_):
+    # Твоя существующая реализация получения каналов для логов
+    pass
+
+
+# --- ТВОЙ КУСОК КОДА: ЛОГИРОВАНИЕ РОЛЕЙ ---
+# (Нижняя часть твоей функции обновления ролей)
+"""
+            Name="➖ Сняты роли",
             value=", ".join([r.mention for r in removed_roles]),
             inline=False,
         )
@@ -140,9 +117,10 @@ async def on_member_update(before: discord.Member, after: discord.Member):
     for target in [channel, all_channel]:
         if target:
             await target.send(embed=embed)
+"""
 
 
-# --- ЛОГИРОВАНИЕ ВОЙСОВ ---
+# --- ТВОЙ КУСОК КОДА: ЛОГИРОВАНИЕ ВОЙСОВ ---
 @bot.event
 async def on_voice_state_update(
     member: discord.Member,
@@ -179,6 +157,7 @@ async def on_voice_state_update(
             await target.send(embed=embed)
 
 
+# --- ЗАПУСК БОТА ---
 async def main():
     if not config.TOKEN:
         raise RuntimeError("Не найден DISCORD_TOKEN.")
@@ -186,5 +165,5 @@ async def main():
         await bot.start(config.TOKEN)
 
 
-if __name__ == "__main__":
+if name == "main":
     asyncio.run(main())
