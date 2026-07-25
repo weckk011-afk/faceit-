@@ -1,9 +1,8 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 
-
 class TicketView(discord.ui.View):
-
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -13,9 +12,7 @@ class TicketView(discord.ui.View):
         emoji="🪪",
         custom_id="create_ticket_btn_persistent",
     )
-    async def create_ticket(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
 
         for thread in interaction.channel.threads:
@@ -31,7 +28,6 @@ class TicketView(discord.ui.View):
                 type=discord.ChannelType.private_thread,
                 invitable=False,
             )
-
             await thread.add_user(user)
 
             embed = discord.Embed(
@@ -43,7 +39,6 @@ class TicketView(discord.ui.View):
                 color=discord.Color.green(),
             )
             await thread.send(embed=embed)
-
             await interaction.response.send_message(
                 f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True
             )
@@ -55,31 +50,31 @@ class TicketView(discord.ui.View):
 
 
 class TicketsCog(commands.Cog):
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="setup_ticket")
-    @commands.has_permissions(administrator=True)
-    async def setup_ticket(self, ctx):
-        await ctx.message.delete()
-
+    @app_commands.command(
+        name="setup_ticket",
+        description="Опубликовать панель создания тикетов (админ)",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def setup_ticket(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="Помощь по серверу",
             description=(
                 "**Создать тикет, в котором можно задать вопрос персоналу или отправить жалобу.**\n\n"
-                "Каждое действие отображается в наших логах и видно кто создал / удалил какой-либо тикет. "
-                "Мы отслеживаем и наказываем участников, которые используют эту систему не по назначению "
-                "(наказания варьируются от предупреждений до дисциплинарного наказания.)\n\n"
+                "Каждое действие отображается в наших логах. Мы отслеживаем и наказываем участников, "
+                "которые используют эту систему не по назначению.\n\n"
                 "Полезные ссылки:\n"
                 "• ПРАВИЛА ПРОЕКТА — #📖┃правила-проекта"
             ),
             color=discord.Color.dark_embed(),
         )
-
         view = TicketView()
-        await ctx.send(embed=embed, view=view)
-
+        await interaction.channel.send(embed=embed, view=view)
+        await interaction.response.send_message(
+            "Панель тикетов успешно опубликована!", ephemeral=True
+        )
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(TicketsCog(bot)) 
+    await bot.add_cog(TicketsCog(bot))
