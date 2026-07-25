@@ -2,6 +2,38 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Закрыть тикет",
+        style=discord.ButtonStyle.danger,
+        emoji="🔒",
+        custom_id="close_ticket_btn_persistent",
+    )
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Проверяем, является ли канал веткой (трэдом)
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.response.send_message(
+                "Эту кнопку можно использовать только внутри ветки тикета!", 
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message("Тикет будет закрыт через 5 секунд...", ephemeral=False)
+        
+        # Небольшая пауза и удаление/архивация ветки
+        import asyncio
+        await asyncio.sleep(5)
+        try:
+            await interaction.channel.edit(archived=True, locked=True)
+        except Exception:
+            # Если бот не может заархивировать, пробуем удалить
+            await interaction.channel.delete()
+
+
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -34,11 +66,16 @@ class TicketView(discord.ui.View):
                 title="🎫 Тикет создан",
                 description=(
                     f"Привет, {user.mention}!\nОпишите вашу проблему или задайте вопрос."
-                    "\nПерсонал скоро ответит вам."
+                    "\nПерсонал скоро ответит вам.\n\n"
+                    "Для закрытия тикета нажмите кнопку ниже."
                 ),
                 color=discord.Color.green(),
             )
-            await thread.send(embed=embed)
+            
+            # Отправляем сообщение с кнопкой закрытия внутрь созданной ветки
+            close_view = CloseTicketView()
+            await thread.send(embed=embed, view=close_view)
+            
             await interaction.response.send_message(
                 f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True
             )
@@ -76,6 +113,6 @@ class TicketsCog(commands.Cog):
             "Панель тикетов успешно опубликована!", ephemeral=True
         )
 
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(TicketsCog(bot))
-
