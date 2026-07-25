@@ -7,6 +7,7 @@ from utils.profile_card import generate_profile_card
 
 
 class Registration(commands.Cog):
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.db = bot.db
@@ -18,12 +19,17 @@ class Registration(commands.Cog):
             player = self.db.get_player(guild_id, user.id)
         return player
 
-    async def get_or_create_player_role(self, guild: discord.Guild) -> discord.Role:
+    async def get_or_create_player_role(
+        self, guild: discord.Guild
+    ) -> discord.Role:
         role = discord.utils.get(guild.roles, name=config.PLAYER_ROLE_NAME)
         if role is None:
             role = await guild.create_role(
                 name=config.PLAYER_ROLE_NAME,
-                reason="Роль для зарегистрированных игроков (создана автоматически ботом)",
+                reason=(
+                    "Роль для зарегистрированных игроков (создана"
+                    " автоматически ботом)"
+                ),
             )
         return role
 
@@ -32,45 +38,72 @@ class Registration(commands.Cog):
         member = interaction.user
         if isinstance(member, discord.Member) and role not in member.roles:
             try:
-                await member.add_roles(role, reason="Успешная регистрация в /register")
+                await member.add_roles(
+                    role, reason="Успешная регистрация в /register"
+                )
             except discord.Forbidden:
                 pass  # у бота не хватает прав/роль бота ниже целевой — админ должен поправить вручную
 
-    @app_commands.command(name="register", description="Зарегистрироваться в системе рейтинга")
-    @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2 (обязательно)")
-    async def register(self, interaction: discord.Interaction, standoff_id: str):
-        existing = self.db.get_player(interaction.guild_id, interaction.user.id)
+    @app_commands.command(
+        name="register", description="Зарегистрироваться в системе рейтинга"
+    )
+    @app_commands.describe(
+        standoff_id="Твой ник или ID в Standoff 2 (обязательно)"
+    )
+    async def register(
+        self, interaction: discord.Interaction, standoff_id: str
+    ):
+        existing = self.db.get_player(
+            interaction.guild_id, interaction.user.id
+        )
         if existing:
-            self.db.set_standoff_id(interaction.guild_id, interaction.user.id, standoff_id)
+            self.db.set_standoff_id(
+                interaction.guild_id, interaction.user.id, standoff_id
+            )
             await self.grant_player_role(interaction)
             await interaction.response.send_message(
-                "Ты уже зарегистрирован. Используй /profile чтобы посмотреть статистику "
-                "или /setuid чтобы обновить ник в Standoff 2.",
+                "Ты уже зарегистрирован. Используй /profile чтобы посмотреть"
+                " статистику или /setuid чтобы обновить ник в Standoff 2.",
                 ephemeral=True,
             )
             return
         self.db.create_player(
-            interaction.guild_id, interaction.user.id, interaction.user.display_name, standoff_id
+            interaction.guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+            standoff_id,
         )
         await self.grant_player_role(interaction)
         extra = f" Ник в Standoff 2: **{standoff_id}**."
         await interaction.response.send_message(
-            f"Готово! Ты зарегистрирован со стартовым рейтингом **{config.START_ELO}**.{extra}",
+            "Готово! Ты зарегистрирован со стартовым рейтингом"
+            f" **{config.START_ELO}**.{extra}",
             ephemeral=True,
         )
 
-    @app_commands.command(name="setuid", description="Указать/обновить свой ник или ID в Standoff 2")
+    @app_commands.command(
+        name="setuid",
+        description="Указать/обновить свой ник или ID в Standoff 2",
+    )
     @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2")
     async def setuid(self, interaction: discord.Interaction, standoff_id: str):
         player = self.ensure_player(interaction.guild_id, interaction.user)
-        self.db.set_standoff_id(interaction.guild_id, interaction.user.id, standoff_id)
+        self.db.set_standoff_id(
+            interaction.guild_id, interaction.user.id, standoff_id
+        )
         await interaction.response.send_message(
             f"Ник в Standoff 2 обновлён: **{standoff_id}**.", ephemeral=True
         )
 
-    @app_commands.command(name="setwl", description="Установить количество побед и поражений")
-    @app_commands.describe(wins="Количество побед", losses="Количество поражений")
-    async def setwl(self, interaction: discord.Interaction, wins: int, losses: int):
+    @app_commands.command(
+        name="setwl", description="Установить количество побед и поражений"
+    )
+    @app_commands.describe(
+        wins="Количество побед", losses="Количество поражений"
+    )
+    async def setwl(
+        self, interaction: discord.Interaction, wins: int, losses: int
+    ):
         if wins < 0 or losses < 0:
             await interaction.response.send_message(
                 "Значения не могут быть отрицательными!", ephemeral=True
@@ -91,10 +124,34 @@ class Registration(commands.Cog):
 
     @app_commands.command(name="profile", description="Показать профиль")
     @app_commands.describe(user="Чей профиль показать")
-    async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
+    async def profile(
+        self, interaction: discord.Interaction, user: discord.Member = None
+    ):
         target = user or interaction.user
-        player = self.db.get_player(interaction.guild_id, target.id)
 
+        # Словарь соответствия ролей на сервере и лиг (регистр букв не важен)
+        LEAGUE_ROLES = {
+            "pro league": "Pro",
+            "division": "Division",
+            "prospect": "Prospect",
+        }
+
+        # Проверяем роли у пользователя
+        user_league = None
+        for role in target.roles:
+            role_name = role.name.lower()
+            if role_name in LEAGUE_ROLES:
+                user_league = LEAGUE_ROLES[role_name]
+                break
+
+        # Если у игрока НЕТ ролей лиг
+        if not user_league:
+            await interaction.response.send_message(
+                f"У {target.mention} нет роли!", ephemeral=True
+            )
+            return
+
+        player = self.db.get_player(interaction.guild_id, target.id)
         if player is None:
             await interaction.response.send_message(
                 f"**{target.display_name}** ещё не зарегистрирован!",
@@ -103,21 +160,29 @@ class Registration(commands.Cog):
             return
 
         await interaction.response.defer()
-        buffer = await generate_profile_card(target, player)
+        buffer = await generate_profile_card(
+            target, player, league_name=user_league
+        )
         file = discord.File(buffer, filename="profile.png")
         await interaction.followup.send(file=file)
 
-    @app_commands.command(name="leaderboard", description="Топ игроков по рейтингу")
+    @app_commands.command(
+        name="leaderboard", description="Топ игроков по рейтингу"
+    )
     async def leaderboard(self, interaction: discord.Interaction):
         rows = self.db.get_leaderboard(interaction.guild_id, limit=10)
         if not rows:
-            await interaction.response.send_message("Пока никто не зарегистрирован.")
+            await interaction.response.send_message(
+                "Пока никто не зарегистрирован."
+            )
             return
 
         lines = []
         for i, row in enumerate(rows, start=1):
-            lines.append(f"**{i}.** {row['nickname']} — {row['elo']} ELO "
-                         f"({row['wins']}W/{row['losses']}L)")
+            lines.append(
+                f"**{i}.** {row['nickname']} — {row['elo']} ELO "
+                f"({row['wins']}W/{row['losses']}L)"
+            )
 
         embed = discord.Embed(
             title="🏆 Топ игроков сервера",
