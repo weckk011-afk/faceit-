@@ -1,0 +1,81 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+class TicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Создать",
+        style=discord.ButtonStyle.success,
+        emoji="🪪",
+        custom_id="create_ticket_btn_persistent",
+    )
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user = interaction.user
+
+        for thread in interaction.channel.threads:
+            if f"-{user.id}" in thread.name:
+                await interaction.response.send_message(
+                    "У вас уже есть открытый тикет в этом канале!", ephemeral=True
+                )
+                return
+
+        try:
+            thread = await interaction.channel.create_thread(
+                name=f"тикет-{user.name}-{user.id}",
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+            )
+            await thread.add_user(user)
+
+            embed = discord.Embed(
+                title="🎫 Тикет создан",
+                description=(
+                    f"Привет, {user.mention}!\nОпишите вашу проблему или задайте вопрос."
+                    "\nПерсонал скоро ответит вам."
+                ),
+                color=discord.Color.green(),
+            )
+            await thread.send(embed=embed)
+            await interaction.response.send_message(
+                f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Не удалось создать тикет: {e}", ephemeral=True
+            )
+
+
+class TicketsCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(
+        name="setup_ticket",
+        description="Опубликовать панель создания тикетов (админ)",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def setup_ticket(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="Помощь по серверу",
+            description=(
+                "**Создать тикет, в котором можно задать вопрос персоналу или отправить жалобу.**\n\n"
+                "Каждое действие отображается в наших логах. Мы отслеживаем и наказываем участников, "
+                "которые используют эту систему не по назначению.\n\n"
+                "Полезные ссылки:\n"
+                "• ПРАВИЛА ПРОЕКТА — #📖┃правила-проекта"
+            ),
+            color=discord.Color.dark_embed(),
+        )
+        view = TicketView()
+        await interaction.channel.send(embed=embed, view=view)
+        await interaction.response.send_message(
+            "Панель тикетов успешно опубликована!", ephemeral=True
+        )
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(TicketsCog(bot))
+
