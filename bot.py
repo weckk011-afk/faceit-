@@ -23,6 +23,7 @@ EXTENSIONS = [
 
 
 class FaceitLikeBot(commands.Bot):
+
     def __init__(self):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.db = Database()
@@ -30,8 +31,12 @@ class FaceitLikeBot(commands.Bot):
     async def setup_hook(self):
         for ext in EXTENSIONS:
             await self.load_extension(ext)
-        synced = await self.tree.sync()
-        logging.info(f"Синхронизировано {len(synced)} slash-команд.")
+
+        # Синхронизация команд для твоего сервера
+        GUILD_ID = discord.Object(id=1530532089102078013)
+        self.tree.copy_global_to(guild=GUILD_ID)
+        synced = await self.tree.sync(guild=GUILD_ID)
+        logging.info(f"Синхронизировано {len(synced)} команд для сервера.")
 
     async def on_ready(self):
         logging.info(f"Бот запущен как {self.user} (id={self.user.id})")
@@ -39,14 +44,20 @@ class FaceitLikeBot(commands.Bot):
 
 async def main():
     if not config.TOKEN:
-        raise RuntimeError(
-            "Не найден DISCORD_TOKEN. Создай файл .env на основе .env.example."
-        )
+        logging.error("ОШИБКА: Не найден токен бота в конфигурации!")
+        return
+
     bot = FaceitLikeBot()
-    async with bot:
-        await bot.start(config.TOKEN)
+    try:
+        async with bot:
+            await bot.start(config.TOKEN)
+    except discord.LoginFailure:
+        logging.error(
+            "ОШИБКА АВТОРИЗАЦИИ: Указан неверный токен бота в настройках Railway!"
+        )
+    except Exception as e:
+        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ СТАРТЕ БОТА: {e}")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
- 
