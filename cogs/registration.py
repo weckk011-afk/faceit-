@@ -142,7 +142,7 @@ class Registration(commands.Cog):
         target = user or interaction.user
         selected_league = league.value
 
-        # Соответствие выбраной лиги и роли на сервере
+        # Роли на сервере для каждой лиги
         REQUIRED_ROLES = {
             "Pro": "pro league",
             "Division": "division",
@@ -151,12 +151,12 @@ class Registration(commands.Cog):
 
         required_role_name = REQUIRED_ROLES[selected_league]
 
-        # Проверяем роли у пользователя
+        # Проверяем наличие роли у игрока
         has_role = any(
             role.name.lower() == required_role_name for role in target.roles
         )
 
-        # Ошибка 1: Нет роли (скрытое сообщение)
+        # Приватная ошибка (видит только отправитель)
         if not has_role:
             await interaction.response.send_message(
                 f"У {target.mention} нет роли!", ephemeral=True
@@ -165,7 +165,7 @@ class Registration(commands.Cog):
 
         player = self.db.get_player(interaction.guild_id, target.id)
 
-        # Ошибка 2: Не зарегистрирован (скрытое сообщение)
+        # Приватная ошибка (видит только отправитель)
         if player is None:
             await interaction.response.send_message(
                 f"**{target.display_name}** ещё не зарегистрирован!",
@@ -173,7 +173,6 @@ class Registration(commands.Cog):
             )
             return
 
-        # Если все проверки пройдены, создаем и отправляем карточку
         await interaction.response.defer()
         buffer = await generate_profile_card(
             target, player, league_name=selected_league
@@ -209,3 +208,4 @@ class Registration(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Registration(bot))
+
