@@ -36,18 +36,19 @@ def _text_w(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) 
 
 
 async def generate_profile_card(member, player: dict) -> io.BytesIO:
-    """member: discord.Member (Ð´Ð»Ñ Ð°Ð²Ð°ÑÐ°ÑÐºÐ¸ Ð¸ Ð¸Ð¼ÐµÐ½Ð¸)
-    player: ÑÑÑÐ¾ÐºÐ° Ð¸Ð· ÐÐ (sqlite3.Row) Ñ Ð¿Ð¾Ð»ÑÐ¼Ð¸ nickname/standoff_id/elo/wins/losses/kills/deaths
+    """
+    member: discord.Member (для аватарки и имени)
+    player: строка из БД (sqlite3.Row) с полями nickname/standoff_id/elo/wins/losses/kills/deaths
     """
     img = Image.new("RGB", (CARD_W, CARD_H), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # ÑÐ¾Ð½ ÐºÐ°ÑÑÐ¾ÑÐºÐ¸
+    # фон карточки
     _rounded_rect(draw, (0, 0, CARD_W, CARD_H), 24, CARD_BG)
-    # Ð°ÐºÑÐµÐ½ÑÐ½Ð°Ñ Ð¿Ð¾Ð»Ð¾ÑÐ° ÑÐ»ÐµÐ²Ð°
+    # акцентная полоса слева
     draw.rectangle((0, 0, 10, CARD_H), fill=ACCENT)
 
-    # ---------- Ð°Ð²Ð°ÑÐ°ÑÐºÐ° ----------
+    # ---------- аватарка ----------
     avatar_size = 200
     avatar_pos = (48, 75)
     try:
@@ -57,24 +58,24 @@ async def generate_profile_card(member, player: dict) -> io.BytesIO:
         mask = _circle_mask(avatar_size)
         img.paste(avatar_img, avatar_pos, mask)
     except Exception:
-        # ÐµÑÐ»Ð¸ Ð½Ðµ ÑÐ´Ð°Ð»Ð¾ÑÑ ÑÐºÐ°ÑÐ°ÑÑ Ð°Ð²Ð°ÑÐ°ÑÐºÑ â ÑÐ¸ÑÑÐµÐ¼ Ð·Ð°Ð³Ð»ÑÑÐºÑ-ÐºÑÑÐ¶Ð¾Ðº
+        # если не удалось скачать аватарку — рисуем заглушку-кружок
         draw.ellipse(
             (avatar_pos[0], avatar_pos[1], avatar_pos[0] + avatar_size, avatar_pos[1] + avatar_size),
             fill=(60, 63, 74),
         )
 
-    # ÑÐ°Ð¼ÐºÐ° Ð²Ð¾ÐºÑÑÐ³ Ð°Ð²Ð°ÑÐ°ÑÐºÐ¸
+    # рамка вокруг аватарки
     draw.ellipse(
         (avatar_pos[0] - 4, avatar_pos[1] - 4,
          avatar_pos[0] + avatar_size + 4, avatar_pos[1] + avatar_size + 4),
         outline=ACCENT, width=4,
     )
 
-    # ---------- ÑÐµÐºÑÑÐ¾Ð²ÑÐµ Ð±Ð»Ð¾ÐºÐ¸ ----------
+    # ---------- текстовые блоки ----------
     text_x = avatar_pos[0] + avatar_size + 40
 
     nickname = player["nickname"] or member.display_name
-    standoff_id = player["standoff_id"] or "â"
+    standoff_id = player["standoff_id"] or "—"
 
     font_name = _font(FONT_BOLD, 42)
     font_sub = _font(FONT_REGULAR, 26)
@@ -84,7 +85,7 @@ async def generate_profile_card(member, player: dict) -> io.BytesIO:
     draw.text((text_x, 55), nickname, font=font_name, fill=TEXT_MAIN)
     draw.text((text_x, 110), f"Standoff 2: {standoff_id}", font=font_sub, fill=TEXT_SUB)
 
-    # ELO ÐºÑÑÐ¿Ð½Ð¾, ÑÐ¿ÑÐ°Ð²Ð° ÑÐ²ÐµÑÑÑ
+    # ELO крупно, справа сверху
     elo_text = str(player["elo"])
     elo_label = "ELO"
     font_elo = _font(FONT_BOLD, 56)
@@ -92,20 +93,20 @@ async def generate_profile_card(member, player: dict) -> io.BytesIO:
     draw.text((CARD_W - 48 - elo_w, 45), elo_text, font=font_elo, fill=ACCENT)
     label_w = _text_w(draw, elo_label, font_stat_label)
     draw.text((CARD_W - 48 - label_w, 100), elo_label, font=font_stat_label, fill=TEXT_SUB)
-# ---------- статы снизу ----------
-wins = player["wins"]
-losses = player["losses"]
-total = wins + losses
 
-winrate = round(wins / total * 100, 1) if total > 0 else 0.0
-wl_ratio = round(wins / losses, 2) if losses > 0 else 0.0
+    # ---------- статы снизу ----------
+    wins = player["wins"]
+    losses = player["losses"]
+    total = wins + losses
 
-stats = [
-    ("Матчи", str(player["matches_played"])),
-    ("W / L", f"{wins} / {losses}"),
-    ("Winrate", f"{winrate}%"),
-    ("W/L Ratio", f"{wl_ratio}"),
-]
+    winrate = round(wins / total * 100, 1) if total > 0 else 0.0
+    wl_ratio = round(wins / losses, 2) if losses > 0 else 0.0
+
+    stats = [
+        ("Матчи", str(total)),
+        ("W / L", f"{wins} / {losses}"),
+        ("Winrate", f"{winrate}%"),
+        ("W/L Ratio", f"{wl_ratio}"),
     ]
 
     stat_y = 220
@@ -120,4 +121,3 @@ stats = [
     img.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
-
