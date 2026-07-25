@@ -67,24 +67,6 @@ class Registration(commands.Cog):
         await interaction.response.send_message(
             f"Ник в Standoff 2 обновлён: **{standoff_id}**.", ephemeral=True
         )
-    @app_commands.command(name="setkd", description="Указать свою статистику килы/смерти (K/D)")
-    @app_commands.describe(kills="Количество килов (суммарно)", deaths="Количество смертей (суммарно)")
-    async def setkd(self, interaction: discord.Interaction, kills: int, deaths: int):
-        if kills < 0 or deaths < 0:
-            await interaction.response.send_message("Числа не могут быть отрицательными.", ephemeral=True)
-            return
-        player = self.db.get_player(interaction.guild_id, interaction.user.id)
-        if player is None:
-            await interaction.response.send_message(
-                "Сначала зарегистрируйся: /register", ephemeral=True
-            )
-            return
-        self.db.set_kd(interaction.guild_id, interaction.user.id, kills, deaths)
-        await interaction.response.send_message(
-            f"Обновлено: K/D {kills}/{deaths}.", ephemeral=True
-        )
-   
-        )
 
     @app_commands.command(name="profile", description="Показать профиль игрока")
     @app_commands.describe(user="Чей профиль показать (по умолчанию — твой)")
