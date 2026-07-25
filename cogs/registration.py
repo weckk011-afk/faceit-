@@ -67,24 +67,32 @@ class Registration(commands.Cog):
         await interaction.response.send_message(
             f"Ник в Standoff 2 обновлён: **{standoff_id}**.", ephemeral=True
         )
+        await interaction.response.send_message(
+            f"Ник в Standoff 2 обновлён: **{standoff_id}**"
+        )
 
-    @app_commands.command(name="profile", description="Показать профиль игрока")
-    @app_commands.describe(user="Чей профиль показать (по умолчанию — твой)")
-    async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
-        target = user or interaction.user
-        player = self.db.get_player(interaction.guild_id, target.id)
-        if player is None:
+    @app_commands.command(name="setwl", description="Установить количество побед и поражений")
+    @app_commands.describe(wins="Количество побед", losses="Количество поражений")
+    async def setwl(self, interaction: discord.Interaction, wins: int, losses: int):
+        if wins < 0 or losses < 0:
             await interaction.response.send_message(
-                f"{target.display_name} ещё не зарегистрирован (/register).",
-                ephemeral=True,
+                "Значения не могут быть отрицательными!", ephemeral=True
             )
             return
 
-        await interaction.response.defer()
-        buffer = await generate_profile_card(target, player)
-        file = discord.File(buffer, filename="profile.png")
-        await interaction.followup.send(file=file)
+        player = self.db.get_player(interaction.guild_id, interaction.user.id)
+        if player is None:
+            await interaction.response.send_message(
+                "Сначала зарегистрируйся: /register", ephemeral=True
+            )
+            return
 
+        self.db.set_wl(interaction.guild_id, interaction.user.id, wins, losses)
+        await interaction.response.send_message(
+            f"Обновлено: Победы/Поражения **{wins}** / **{losses}**."
+        )
+
+    @app_commands.command(name="profile", description="Показать профиль")
     @app_commands.command(name="leaderboard", description="Топ игроков по рейтингу")
     async def leaderboard(self, interaction: discord.Interaction):
         rows = self.db.get_leaderboard(interaction.guild_id, limit=10)
