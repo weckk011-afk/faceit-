@@ -16,10 +16,8 @@ class TicketView(discord.ui.View):
     async def create_ticket(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        guild = interaction.guild
         user = interaction.user
 
-        # Проверяем, нет ли уже открытой ветки у этого пользователя
         for thread in interaction.channel.threads:
             if f"-{user.id}" in thread.name:
                 await interaction.response.send_message(
@@ -28,14 +26,12 @@ class TicketView(discord.ui.View):
                 return
 
         try:
-            # Создаем приватную ветку для тикета
             thread = await interaction.channel.create_thread(
                 name=f"тикет-{user.name}-{user.id}",
                 type=discord.ChannelType.private_thread,
                 invitable=False,
             )
 
-            # Добавляем пользователя в ветку
             await thread.add_user(user)
 
             embed = discord.Embed(
@@ -62,12 +58,10 @@ class TicketsCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.db = bot.db
 
     @commands.command(name="setup_ticket")
     @commands.has_permissions(administrator=True)
     async def setup_ticket(self, ctx):
-        """Команда для отправки панели тикетов"""
         await ctx.message.delete()
 
         embed = discord.Embed(
