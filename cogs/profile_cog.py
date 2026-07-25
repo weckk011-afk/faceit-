@@ -1,3 +1,13 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+
+class ProfileCog(commands.Cog):
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
     @app_commands.command(
         name="profile", description="Показать профиль игрока"
     )
@@ -19,7 +29,8 @@
         user: discord.Member = None,
     ):
         target = user or interaction.user
-        player = self.db.get_player(interaction.guild_id, target.id)
+        player = self.bot.db.get_player(interaction.guild_id, target.id)
+
         if player is None:
             await interaction.response.send_message(
                 f"{target.display_name} ещё не зарегистрирован.",
@@ -27,10 +38,11 @@
             )
             return
 
-        await interaction.response.defer()
+        await interaction.response.send_message(
+            f"Профиль игрока {target.mention} в лиге **{league}**",
+            ephemeral=True,
+        )
 
-        # Здесь можно передать лигу в генератор карточки или вывести в ответе
-        # Например, передаем league в функцию генерации (если она это поддерживает)
-        buffer = await generate_profile_card(target, player, league=league)
-        file = discord.File(buffer, filename="profile.png")
-        await interaction.followup.send(file=file)
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ProfileCog(bot))
