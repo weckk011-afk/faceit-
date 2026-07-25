@@ -26,3 +26,4 @@ DB_PATH = "facebot.sqlite3"
 # Роль, которую бот выдаёт после успешной регистрации.
 # Именно на неё нужно настроить видимость каналов (см. README).
 PLAYER_ROLE_NAME = "Игрок"
+DB_PATH = "/app/data/database.db"
