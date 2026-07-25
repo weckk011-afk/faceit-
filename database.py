@@ -51,6 +51,16 @@ class Database:
                 voice1_id INTEGER,
                 voice2_id INTEGER
             );
+
+            CREATE TABLE IF NOT EXISTS tickets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                category TEXT NOT NULL,
+                thread_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at INTEGER NOT NULL
+            );
             """
         )
         self.conn.commit()
@@ -220,4 +230,30 @@ class Database:
     def cancel_match(self, match_id: int):
         cur = self.conn.cursor()
         cur.execute("UPDATE matches SET status='cancelled' WHERE id=?", (match_id,))
+        self.conn.commit()
+
+    # ---------- tickets ----------
+
+    def create_ticket(self, guild_id: int, user_id: int, category: str) -> int:
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT INTO tickets (guild_id, user_id, category, created_at) VALUES (?, ?, ?, ?)",
+            (guild_id, user_id, category, int(time.time())),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def set_ticket_thread(self, ticket_id: int, thread_id: int):
+        cur = self.conn.cursor()
+        cur.execute("UPDATE tickets SET thread_id=? WHERE id=?", (thread_id, ticket_id))
+        self.conn.commit()
+
+    def get_ticket_by_thread(self, thread_id: int) -> Optional[sqlite3.Row]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM tickets WHERE thread_id=?", (thread_id,))
+        return cur.fetchone()
+
+    def close_ticket(self, ticket_id: int):
+        cur = self.conn.cursor()
+        cur.execute("UPDATE tickets SET status='closed' WHERE id=?", (ticket_id,))
         self.conn.commit()
