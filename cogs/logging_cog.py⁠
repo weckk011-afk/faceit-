@@ -1,0 +1,214 @@
+import datetime
+import discord
+from discord.ext import commands
+
+
+class LoggingCog(commands.Cog):
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        # Привязанные ID каналов для логов
+        self.LOG_CHANNELS = {
+            "all": 1530656949593575565,
+            "roles": 1530656611146661938,
+            "messages": 1530656763316277258,
+            "voice": 1530656667492941886,
+        }
+
+    # Вспомогательная функция для получения канала по типу
+    def _get_log_channel(
+        self, guild: discord.Guild, log_type: str
+    ) -> discord.TextChannel | None:
+        channel_id = self.LOG_CHANNELS.get(log_type)
+        if channel_id:
+            return guild.get_channel(channel_id)
+        return None
+
+    # ---------------------------------------------------------
+    # 1. MESSAGE LOGS (Удаление и редактирование сообщений)
+    # ---------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        if message.author.bot or not message.guild:
+            return
+
+        channel = self._get_log_channel(message.guild, "messages")
+        all_channel = self._get_log_channel(message.guild, "all")
+
+        embed = discord.Embed(
+            title="🗑️ Сообщение удалено",
+            color=discord.Color.red(),
+            timestamp=datetime.datetime.now(),
+        )
+        embed.add_field(
+            name="Автор", value=message.author.mention, inline=True
+        )
+        embed.add_field(
+            name="Канал", value=message.channel.mention, inline=True
+        )
+        if message.content:
+            embed.add_field(
+                name="Содержание",
+                value=(
+                    message.content[:1024]
+                    if len(message.content) <= 1024
+                    else message.content[:1021] + "..."
+                ),
+                inline=False,
+            )
+        embed.set_footer(text=f"ID пользователя: {message.author.id}")
+
+        for target in [channel, all_channel]:
+            if target:
+                await target.send(embed=embed)
+
+    @commands.Cog.listener()
+    async def on_message_edit(
+        self, before: discord.Message, after: discord.Message
+    ):
+        if (
+            before.author.bot
+            or not before.guild
+            or before.content == after.content
+        ):
+            return
+
+        channel = self._get_log_channel(before.guild, "messages")
+        all_channel = self._get_log_channel(before.guild, "all")
+
+        embed = discord.Embed(
+            title="✏️ Сообщение отредактировано",
+            color=discord.Color.orange(),
+            timestamp=datetime.datetime.now(),
+        )
+        embed.add_field(
+            name="Автор", value=before.author.mention, inline=True
+        )
+        embed.add_field(
+            name="Канал", value=before.channel.mention, inline=True
+        )
+        embed.add_field(
+            name="Было",
+            value=(
+                before.content[:1024] if before.content else "*Пусто/Медиа*"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Стало",
+            value=(after.content[:1024] if after.content else "*Пусто/Медиа*"),
+            inline=False,
+        )
+        embed.set_footer(text=f"ID пользователя: {before.author.id}")
+
+        for target in [channel, all_channel]:
+            if target:
+                await target.send(embed=embed)
+
+    # ---------------------------------------------------------
+    # 2. ROLES LOGS (Изменение ролей у пользователей)
+    # ---------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_member_update(
+        self, before: discord.Member, after: discord.Member
+    ):
+        if before.roles == after.roles:
+            return
+
+        guild = after.guild
+        channel = self._get_log_channel(guild, "roles")
+        all_channel = self._get_log_channel(guild, "all")
+
+        added_roles = [r for r in after.roles if r not in before.roles]
+        removed_roles = [r for r in before.roles if r not in after.roles]
+
+        embed = discord.Embed(
+            title="🛡️ Изменение ролей",
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(),
+        )
+        embed.add_field(
+            name="Пользователь", value=after.mention, inline=False
+        )
+
+        if added_roles:
+            embed.add_field(
+                name="➕ Выданы роли",
+                value=", ".join([r.mention for r in added_roles]),
+                inline=False,
+            )
+        if removed_roles:
+            embed.add_field(
+                name="➖ Сняты роли",
+                value=", ".join([r.mention for r in removed_roles]),
+                inline=False,
+            )
+
+        embed.set_footer(text=f"ID пользователя: {after.id}")
+
+        for target in [channel, all_channel]:
+            if target:
+                await target.send(embed=embed)
+
+    # ---------------------------------------------------------
+    # 3. VOICE LOGS (Подключения, отключения и переходы по войсам)
+    # ---------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ):
+        if member.bot:
+            return
+
+        guild = member.guild
+        channel = self._get_log_channel(guild, "voice")
+        all_channel = self._get_log_channel(guild, "all")
+
+        embed = discord.Embed(
+            timestamp=datetime.datetime.now(),
+        )
+        embed.add_field(
+            name="Пользователь", value=member.mention, inline=False
+        )
+
+        # Зашел в канал
+        if before.channel is None and after.channel is not None:
+            embed.title = "🔊 Подключение к голосовому каналу"
+            embed.color = discord.Color.green()
+            embed.add_field(
+                name="Канал", value=after.channel.name, inline=False
+            )
+
+        # Вышел из канала
+        elif before.channel is not None and after.channel is None:
+            embed.title = "🔇 Выход из голосового канала"
+            embed.color = discord.Color.red()
+            embed.add_field(
+                name="Канал", value=before.channel.name, inline=False
+            )
+
+        # Перешел из одного канала в другой
+        elif before.channel != after.channel:
+            embed.title = "🔄 Переход между голосовыми каналами"
+            embed.color = discord.Color.gold()
+            embed.add_field(
+                name="Из канала", value=before.channel.name, inline=True
+            )
+            embed.add_field(
+                name="В канал", value=after.channel.name, inline=True
+            )
+        else:
+            return
+
+        embed.set_footer(text=f"ID пользователя: {member.id}")
+
+        for target in [channel, all_channel]:
+            if target:
+                await target.send(embed=embed)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(LoggingCog(bot))
