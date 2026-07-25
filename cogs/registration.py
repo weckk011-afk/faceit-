@@ -68,6 +68,14 @@ class RegisterButtonView(discord.ui.View):
     async def register_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
+        # Проверяем, зарегистрирован ли уже пользователь в базе
+        existing = self.cog.db.get_player(interaction.guild_id, interaction.user.id)
+        if existing:
+            await interaction.response.send_message(
+                "❌ Вы уже зарегистрированы!", ephemeral=True
+            )
+            return
+
         await interaction.response.send_modal(RegisterModal(self.cog))
 
 
