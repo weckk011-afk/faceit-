@@ -1,148 +1,94 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
 
-import config
 
+class TicketView(discord.ui.View):
 
-class TicketCategorySelect(discord.ui.Select):
-    def __init__(self, cog: "TicketsCog"):
-        options = [
-            discord.SelectOption(label=label, emoji=emoji, value=label)
-            for emoji, label in config.TICKET_CATEGORIES
-        ]
-        super().__init__(
-            placeholder="Выберите категорию...",
-            options=options,
-            min_values=1,
-            max_values=1,
-        )
-        self.cog = cog
-
-    async def callback(self, interaction: discord.Interaction):
-        await self.cog.create_ticket(interaction, self.values[0])
-
-
-class TicketCategoryView(discord.ui.View):
-    def __init__(self, cog: "TicketsCog"):
-        super().__init__(timeout=60)
-        self.add_item(TicketCategorySelect(cog))
-
-
-class CreateTicketButtonView(discord.ui.View):
-    def __init__(self, cog: "TicketsCog"):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.cog = cog
 
     @discord.ui.button(
-        label="📩 Создать",
+        label="Создать",
         style=discord.ButtonStyle.success,
-        custom_id="facebot_create_ticket_button",
+        emoji="🪪",
+        custom_id="create_ticket_btn",
     )
-    async def create_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(
-            "Выберите, к какой категории относится ваш вопрос:",
-            view=TicketCategoryView(self.cog),
-            ephemeral=True,
-        )
+    async def create_ticket(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        guild = interaction.guild
+        user = interaction.user
+
+        # Проверяем, нет ли уже открытой ветки у этого пользователя в этом канале
+        for thread in interaction.channel.threads:
+            if f"-{user.id}" in thread.name:
+                await interaction.response.send_message(
+                    "У вас уже есть открытый тикет в этом канале!", ephemeral=True
+                )
+                return
+
+        # Создаем приватную ветку (скрытую от других обычных участников)
+        try:
+            thread = await interaction.channel.create_thread(
+                name=f"тикет-{user.name}-{user.id}",
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+            )
+
+            # Добавляем пользователя в ветку
+            await thread.add_user(user)
+
+            # Отправляем приветственное сообщение в ветку
+            embed = discord.Embed(
+                title="🎫 Тикет создан",
+                description=(
+                    f"Привет, {user.mention}!\nОпишите вашу проблему или задайте вопрос."
+                    "\nПерсонал скоро ответит вам."
+                ),
+                color=discord.Color.green(),
+            )
+            await thread.send(embed=embed)
+
+            await interaction.response.send_message(
+                f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Не удалось создать тикет: {e}", ephemeral=True
+            )
 
 
-class CloseTicketView(discord.ui.View):
-    def __init__(self, cog: "TicketsCog"):
-        super().__init__(timeout=None)
-        self.cog = cog
+class TicketCog(commands.Cog):
 
-    @discord.ui.button(
-        label="🔒 Закрыть тикет",
-        style=discord.ButtonStyle.danger,
-        custom_id="facebot_close_ticket_button",
-    )
-    async def close_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.close_ticket(interaction)
-
-
-class TicketsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.db = bot.db
 
-    async def create_ticket(self, interaction: discord.Interaction, category: str):
-        guild = interaction.guild
-        parent_channel = interaction.channel
-
-        ticket_id = self.db.create_ticket(guild.id, interaction.user.id, category)
-
-        thread = await parent_channel.create_thread(
-            name=f"тикет-{ticket_id} | {category}"[:100],
-            type=discord.ChannelType.public_thread,
-            reason=f"Тикет #{ticket_id} от {interaction.user}",
-        )
-        self.db.set_ticket_thread(ticket_id, thread.id)
-
-        try:
-            await thread.add_user(interaction.user)
-        except discord.HTTPException:
-            pass
-
-        support_role = discord.utils.get(guild.roles, name=config.SUPPORT_ROLE_NAME)
-        mention = support_role.mention if support_role else ""
+    @commands.command(name="setup_ticket")
+    @commands.has_permissions(administrator=True)
+    async def setup_ticket(self, ctx):
+        """Команда для отправки панели тикетов в текущий канал"""
+        await ctx.message.delete()
 
         embed = discord.Embed(
-            title=f"🎫 Тикет #{ticket_id}",
-            description=f"**Категория:** {category}\n**Автор:** {interaction.user.mention}\n\n"
-                        f"Опиши подробно свой вопрос/проблему. Поддержка ответит здесь.",
-            color=discord.Color.red(),
+            title="Помощь по серверу",
+            description=(
+                "**Создать тикет, в котором можно задать вопрос персоналу или отправить жалобу.**\n\n"
+                "Каждое действие отображается в наших логах и видно кто создал / удалил какой-либо тикет. "
+                "Мы отслеживаем и наказываем участников, которые используют эту систему не по назначению "
+                "(наказания варьируются от предупреждений до дисциплинарного наказания.)\n\n"
+                "Полезные ссылки:\n"
+                "• ПРАВИЛА ПРОЕКТА — #📖┃правила-проекта"
+            ),
+            color=discord.Color.dark_embed(),
         )
-        await thread.send(
-            content=f"{interaction.user.mention} {mention}".strip(),
-            embed=embed,
-            view=CloseTicketView(self),
-        )
+        embed.set_image(
+            url="https://i.imgur.com/your_banner_image.png"
+        )  # Замени на свою картинку-баннер если нужно
 
-        await interaction.response.send_message(
-            f"Тикет создан: {thread.mention}", ephemeral=True
-        )
-
-    async def close_ticket(self, interaction: discord.Interaction):
-        thread = interaction.channel
-        ticket = self.db.get_ticket_by_thread(thread.id)
-
-        is_author = ticket is not None and ticket["user_id"] == interaction.user.id
-        is_staff = interaction.user.guild_permissions.manage_guild or (
-            discord.utils.get(interaction.guild.roles, name=config.SUPPORT_ROLE_NAME)
-            in getattr(interaction.user, "roles", [])
-        )
-
-        if not (is_author or is_staff):
-            await interaction.response.send_message(
-                "Только автор тикета или поддержка может его закрыть.", ephemeral=True
-            )
-            return
-
-        if ticket is not None:
-            self.db.close_ticket(ticket["id"])
-
-        await interaction.response.send_message("🔒 Тикет закрыт и заархивирован.")
-        try:
-            await thread.edit(archived=True, locked=True, reason=f"Закрыт пользователем {interaction.user}")
-        except discord.HTTPException:
-            pass
-
-    @app_commands.command(name="postticket", description="Опубликовать кнопку создания тикета в этом канале (админ)")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def postticket(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="🎫 Техническая поддержка",
-            description="Нажми кнопку ниже, чтобы создать тикет и выбрать категорию вопроса.",
-            color=discord.Color.red(),
-        )
-        view = CreateTicketButtonView(self)
-        await interaction.channel.send(embed=embed, view=view)
-        await interaction.response.send_message("Кнопка создания тикета опубликована.", ephemeral=True)
+        view = TicketView()
+        await ctx.send(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):
-    cog = TicketsCog(bot)
-    await bot.add_cog(cog)
-    bot.add_view(CreateTicketButtonView(cog))
-    bot.add_view(CloseTicketView(cog))
+    await bot.add_cog(TicketCog(bot))
