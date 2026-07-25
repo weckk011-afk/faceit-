@@ -31,17 +31,10 @@ class FaceitLikeBot(commands.Bot):
     async def setup_hook(self):
         for ext in EXTENSIONS:
             await self.load_extension(ext)
-
-        GUILD_ID = discord.Object(id=1530532089102078013)
         
-        # Очищаем глобальные команды, чтобы убрать дубликаты
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync(guild=None)
-
-        # Синхронизируем актуальные команды строго для твоего сервера
-        self.tree.copy_global_to(guild=GUILD_ID)
-        synced = await self.tree.sync(guild=GUILD_ID)
-        logging.info(f"Синхронизировано {len(synced)} команд для сервера.")
+        # Синхронизируем команды глобально (появятся во всех чатах бота)
+        synced = await self.tree.sync()
+        logging.info(f"Синхронизировано {len(synced)} slash-команд.")
 
     async def on_ready(self):
         logging.info(f"Бот запущен как {self.user} (id={self.user.id})")
