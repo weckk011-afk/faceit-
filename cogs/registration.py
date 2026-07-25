@@ -18,12 +18,11 @@ class Registration(commands.Cog):
         return player
 
     @app_commands.command(name="register", description="Зарегистрироваться в системе рейтинга")
-    @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2 (необязательно)")
-    async def register(self, interaction: discord.Interaction, standoff_id: str = None):
+    @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2 (обязательно)")
+    async def register(self, interaction: discord.Interaction, standoff_id: str):
         existing = self.db.get_player(interaction.guild_id, interaction.user.id)
         if existing:
-            if standoff_id and not existing["standoff_id"]:
-                self.db.set_standoff_id(interaction.guild_id, interaction.user.id, standoff_id)
+            self.db.set_standoff_id(interaction.guild_id, interaction.user.id, standoff_id)
             await interaction.response.send_message(
                 "Ты уже зарегистрирован. Используй /profile чтобы посмотреть статистику "
                 "или /setuid чтобы обновить ник в Standoff 2.",
@@ -33,7 +32,7 @@ class Registration(commands.Cog):
         self.db.create_player(
             interaction.guild_id, interaction.user.id, interaction.user.display_name, standoff_id
         )
-        extra = f" Ник в Standoff 2: **{standoff_id}**." if standoff_id else ""
+        extra = f" Ник в Standoff 2: **{standoff_id}**."
         await interaction.response.send_message(
             f"Готово! Ты зарегистрирован со стартовым рейтингом **{config.START_ELO}**.{extra}",
             ephemeral=True,
@@ -100,3 +99,4 @@ class Registration(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Registration(bot))
+
