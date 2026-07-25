@@ -1,4 +1,3 @@
-import os
 import sqlite3
 import json
 import time
@@ -9,11 +8,6 @@ import config
 
 class Database:
     def __init__(self, path: str = config.DB_PATH):
-        # Автоматически создаём директорию для базы данных (для работы с Volume на Railway)
-        dir_name = os.path.dirname(path)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
-
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
@@ -105,6 +99,12 @@ class Database:
             (kills, deaths, guild_id, user_id),
         )
         self.conn.commit()
+
+    def delete_all_players(self, guild_id: int) -> int:
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM players WHERE guild_id=?", (guild_id,))
+        self.conn.commit()
+        return cur.rowcount
 
     def set_elo(self, guild_id: int, user_id: int, elo: int):
         cur = self.conn.cursor()
