@@ -18,10 +18,12 @@ EXTENSIONS = [
     "cogs.registration",
     "cogs.queue_cog",
     "cogs.match_cog",
+    "cogs.moderation",  # <--- Добавлен модуль модерации и ролей
 ]
 
 
 class FaceitLikeBot(commands.Bot):
+
     def __init__(self):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.db = Database()
