@@ -18,7 +18,8 @@ EXTENSIONS = [
     "cogs.registration",
     "cogs.queue_cog",
     "cogs.match_cog",
-    "cogs.moderation",  # <--- Добавлен модуль модерации и ролей
+    "cogs.moderation",
+    "cogs.logging_cog",  # <--- Добавили загрузку логов!
 ]
 
 
