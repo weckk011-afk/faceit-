@@ -10,7 +10,7 @@ import config
 # --- РЕГИСТРАЦИЯ CYBER FACEIT ---
 
 # 1. Всплывающее окно (Modal) для заполнения данных
-class RegistrationModal(discord.ui.Modal, title="Регистрация на Cyber Faceit"):
+class RegistrationModal(discord.ui.Modal, title="Регистрация на Elite FPL"):
     def init(self):
         super().init()
 
