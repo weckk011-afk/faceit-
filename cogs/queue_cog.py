@@ -9,58 +9,87 @@ class QueueCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.db = bot.db
+        self._processing_lobby: set[int] = set()  # guild_id, чтобы не запустить матч дважды
 
-    def _is_registered(self, guild_id: int, user: discord.abc.User) -> bool:
-        return self.db.get_player(guild_id, user.id) is not None
+    def _is_registered(self, guild_id: int, user_id: int) -> bool:
+        return self.db.get_player(guild_id, user_id) is not None
 
-    @app_commands.command(name="queue", description="Встать в очередь на матч 5x5")
-    async def queue_join(self, interaction: discord.Interaction):
-        guild_id = interaction.guild_id
+    def _get_lobby_channel(self, guild: discord.Guild):
+        return discord.utils.get(guild.voice_channels, name=config.LOBBY_CHANNEL_NAME)
 
-        if not self._is_registered(guild_id, interaction.user):
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState
+    ):
+        if member.bot:
+            return
+
+        guild = member.guild
+        lobby = self._get_lobby_channel(guild)
+        if lobby is None:
+            return
+
+        just_joined_lobby = after.channel is not None and after.channel.id == lobby.id and (
+            before.channel is None or before.channel.id != lobby.id
+        )
+
+        # если зашёл в лобби, но не зарегистрирован — выкидываем и просим зарегистрироваться
+        if just_joined_lobby and not self._is_registered(guild.id, member.id):
+            try:
+                await member.move_to(None, reason="Не зарегистрирован")
+            except discord.HTTPException:
+                pass
+            try:
+                await member.send(
+                    "Чтобы встать в лобби на матч, сначала зарегистрируйся на сервере: "
+                    "используй команду /register и укажи свой ник в Standoff 2."
+                )
+            except discord.Forbidden:
+                pass
+            return
+
+        # если изменение затронуло лобби (зашёл или вышел) — проверяем, не набралось ли 10
+        touches_lobby = (before.channel and before.channel.id == lobby.id) or (
+            after.channel and after.channel.id == lobby.id
+        )
+        if touches_lobby:
+            await self._check_lobby(guild, lobby)
+
+    async def _check_lobby(self, guild: discord.Guild, lobby):
+        if guild.id in self._processing_lobby:
+            return
+
+        members_in_lobby = [m for m in lobby.members if not m.bot]
+        registered = [m for m in members_in_lobby if self._is_registered(guild.id, m.id)]
+
+        if len(registered) >= config.QUEUE_SIZE:
+            self._processing_lobby.add(guild.id)
+            try:
+                selected = registered[: config.QUEUE_SIZE]
+                match_cog = self.bot.get_cog("MatchCog")
+                await match_cog.start_match(guild, [m.id for m in selected])
+            finally:
+                self._processing_lobby.discard(guild.id)
+
+    @app_commands.command(name="lobbystatus", description="Кто сейчас в голосовом лобби")
+    async def lobbystatus(self, interaction: discord.Interaction):
+        lobby = self._get_lobby_channel(interaction.guild)
+        if lobby is None:
             await interaction.response.send_message(
-                "Сначала нужно зарегистрироваться: используй /register и укажи свой ник "
-                "в Standoff 2.",
+                f"Голосовой канал \"{config.LOBBY_CHANNEL_NAME}\" не найден на сервере. "
+                f"Создай голосовой канал с таким именем.",
                 ephemeral=True,
             )
             return
 
-        added = self.db.queue_add(guild_id, interaction.user.id)
-        if not added:
-            await interaction.response.send_message(
-                "Ты уже в очереди. Используй /leavequeue чтобы выйти.", ephemeral=True
-            )
+        members = [m for m in lobby.members if not m.bot]
+        if not members:
+            await interaction.response.send_message(f"В лобби ({lobby.mention}) сейчас никого нет.")
             return
 
-        rows = self.db.queue_list(guild_id)
+        lines = [f"<@{m.id}>" for m in members]
         await interaction.response.send_message(
-            f"✅ {interaction.user.mention} встал(а) в очередь "
-            f"({len(rows)}/{config.QUEUE_SIZE})."
-        )
-
-        if len(rows) >= config.QUEUE_SIZE:
-            selected = [row["user_id"] for row in rows[: config.QUEUE_SIZE]]
-            self.db.queue_clear_users(guild_id, selected)
-            match_cog = self.bot.get_cog("MatchCog")
-            await match_cog.start_match(interaction.guild, selected)
-
-    @app_commands.command(name="leavequeue", description="Выйти из очереди")
-    async def queue_leave(self, interaction: discord.Interaction):
-        removed = self.db.queue_remove(interaction.guild_id, interaction.user.id)
-        if removed:
-            await interaction.response.send_message("Ты вышел(а) из очереди.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Ты не был(а) в очереди.", ephemeral=True)
-
-    @app_commands.command(name="queuestatus", description="Показать текущую очередь")
-    async def queue_status(self, interaction: discord.Interaction):
-        rows = self.db.queue_list(interaction.guild_id)
-        if not rows:
-            await interaction.response.send_message("Очередь пуста.")
-            return
-        lines = [f"<@{row['user_id']}>" for row in rows]
-        await interaction.response.send_message(
-            f"**Очередь ({len(rows)}/{config.QUEUE_SIZE}):**\n" + "\n".join(lines)
+            f"**В лобби ({len(members)}/{config.QUEUE_SIZE}):**\n" + "\n".join(lines)
         )
 
 
