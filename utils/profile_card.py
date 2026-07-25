@@ -17,7 +17,7 @@ TEXT_MAIN = (255, 255, 255)
 TEXT_SUB = (163, 166, 178)
 
 LEAGUE_COLORS = {
-    "Pro": (255, 215, 0),  # Золотой
+    "Pro": (255, 215, 0),  # Красный
     "Division": (175, 82, 222),  # Фиолетовый
     "Prospect": (52, 199, 89),  # Зеленый
 }
@@ -51,11 +51,11 @@ async def generate_profile_card(
     img = Image.new("RGB", (CARD_W, CARD_H), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # фон
+    # Фон
     _rounded_rect(draw, (0, 0, CARD_W, CARD_H), 24, CARD_BG)
     draw.rectangle((0, 0, 10, CARD_H), fill=ACCENT)
 
-    # ---------- аватарка ----------
+    # Аватарка
     avatar_size = 200
     avatar_pos = (48, 75)
     try:
@@ -88,7 +88,7 @@ async def generate_profile_card(
         width=4,
     )
 
-    # ---------- текстовые блоки ----------
+    # Тексты
     text_x = avatar_pos[0] + avatar_size + 40
 
     nickname = player["nickname"] or member.display_name
@@ -105,7 +105,7 @@ async def generate_profile_card(
         (text_x, 90), f"Standoff 2: {standoff_id}", font=font_sub, fill=TEXT_SUB
     )
 
-    # Отрисовка плашки Лиги
+    # Плашка лиги
     league_color = LEAGUE_COLORS.get(league_name, ACCENT)
     league_text = league_name.upper()
 
@@ -138,16 +138,13 @@ async def generate_profile_card(
         (CARD_W - 48 - label_w, 95), elo_label, font=font_stat_label, fill=TEXT_SUB
     )
 
-    # ---------- статистика ----------
+    # Статистика
     wins = player["wins"] or 0
     losses = player["losses"] or 0
-
-    # Защита от отсутствующих ключей
     kills = player["kills"] if "kills" in player.keys() else 0
     deaths = player["deaths"] if "deaths" in player.keys() else 0
 
     total_matches = wins + losses
-
     winrate = round(wins / total_matches * 100, 1) if total_matches > 0 else 0.0
     kd = round(kills / deaths, 2) if deaths > 0 else float(kills)
 
