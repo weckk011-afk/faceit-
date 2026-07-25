@@ -25,6 +25,8 @@ class Database:
                 wins INTEGER NOT NULL DEFAULT 0,
                 losses INTEGER NOT NULL DEFAULT 0,
                 matches_played INTEGER NOT NULL DEFAULT 0,
+                kills INTEGER NOT NULL DEFAULT 0,
+                deaths INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (guild_id, user_id)
             );
 
@@ -87,6 +89,14 @@ class Database:
         cur.execute(
             "UPDATE players SET standoff_id=? WHERE guild_id=? AND user_id=?",
             (standoff_id, guild_id, user_id),
+        )
+        self.conn.commit()
+
+    def set_kd(self, guild_id: int, user_id: int, kills: int, deaths: int):
+        cur = self.conn.cursor()
+        cur.execute(
+            "UPDATE players SET kills=?, deaths=? WHERE guild_id=? AND user_id=?",
+            (kills, deaths, guild_id, user_id),
         )
         self.conn.commit()
 
