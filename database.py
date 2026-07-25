@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import json
 import time
@@ -8,6 +9,11 @@ import config
 
 class Database:
     def __init__(self, path: str = config.DB_PATH):
+        # Автоматически создаём директорию для базы данных (для работы с Volume на Railway)
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
