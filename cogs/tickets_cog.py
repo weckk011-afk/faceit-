@@ -11,7 +11,7 @@ class TicketView(discord.ui.View):
         label="Создать",
         style=discord.ButtonStyle.success,
         emoji="🪪",
-        custom_id="create_ticket_btn",
+        custom_id="create_ticket_btn_persistent",
     )
     async def create_ticket(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -19,7 +19,7 @@ class TicketView(discord.ui.View):
         guild = interaction.guild
         user = interaction.user
 
-        # Проверяем, нет ли уже открытой ветки у этого пользователя в этом канале
+        # Проверяем, нет ли уже открытой ветки у этого пользователя
         for thread in interaction.channel.threads:
             if f"-{user.id}" in thread.name:
                 await interaction.response.send_message(
@@ -27,8 +27,8 @@ class TicketView(discord.ui.View):
                 )
                 return
 
-        # Создаем приватную ветку (скрытую от других обычных участников)
         try:
+            # Создаем приватную ветку для тикета
             thread = await interaction.channel.create_thread(
                 name=f"тикет-{user.name}-{user.id}",
                 type=discord.ChannelType.private_thread,
@@ -38,7 +38,6 @@ class TicketView(discord.ui.View):
             # Добавляем пользователя в ветку
             await thread.add_user(user)
 
-            # Отправляем приветственное сообщение в ветку
             embed = discord.Embed(
                 title="🎫 Тикет создан",
                 description=(
@@ -59,15 +58,16 @@ class TicketView(discord.ui.View):
             )
 
 
-class TicketCog(commands.Cog):
+class TicketsCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.db = bot.db
 
     @commands.command(name="setup_ticket")
     @commands.has_permissions(administrator=True)
     async def setup_ticket(self, ctx):
-        """Команда для отправки панели тикетов в текущий канал"""
+        """Команда для отправки панели тикетов"""
         await ctx.message.delete()
 
         embed = discord.Embed(
@@ -82,13 +82,10 @@ class TicketCog(commands.Cog):
             ),
             color=discord.Color.dark_embed(),
         )
-        embed.set_image(
-            url="https://i.imgur.com/your_banner_image.png"
-        )  # Замени на свою картинку-баннер если нужно
 
         view = TicketView()
         await ctx.send(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(TicketCog(bot))
+    await bot.add_cog(TicketsCog(bot))
