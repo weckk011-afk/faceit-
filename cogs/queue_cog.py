@@ -10,14 +10,20 @@ class QueueCog(commands.Cog):
         self.bot = bot
         self.db = bot.db
 
-    def _ensure_player(self, guild_id: int, user: discord.abc.User):
-        if self.db.get_player(guild_id, user.id) is None:
-            self.db.create_player(guild_id, user.id, user.display_name)
+    def _is_registered(self, guild_id: int, user: discord.abc.User) -> bool:
+        return self.db.get_player(guild_id, user.id) is not None
 
     @app_commands.command(name="queue", description="Встать в очередь на матч 5x5")
     async def queue_join(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id
-        self._ensure_player(guild_id, interaction.user)
+
+        if not self._is_registered(guild_id, interaction.user):
+            await interaction.response.send_message(
+                "Сначала нужно зарегистрироваться: используй /register и укажи свой ник "
+                "в Standoff 2.",
+                ephemeral=True,
+            )
+            return
 
         added = self.db.queue_add(guild_id, interaction.user.id)
         if not added:
