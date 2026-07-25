@@ -152,30 +152,7 @@ class Registration(commands.Cog):
         await interaction.channel.send(embed=embed, view=view)
         await interaction.response.send_message("Кнопка регистрации опубликована.", ephemeral=True)
 
-    @app_commands.command(name="register", description="Зарегистрироваться в системе рейтинга (текстом, без кнопки)")
-    @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2 (обязательно)")
-    async def register(self, interaction: discord.Interaction, standoff_id: str):
-        existing = self.db.get_player(interaction.guild_id, interaction.user.id)
-        if existing:
-            self.db.set_standoff_id(interaction.guild_id, interaction.user.id, standoff_id)
-            await self.grant_player_role(interaction)
-            await interaction.response.send_message(
-                "Ты уже зарегистрирован. Используй /profile чтобы посмотреть статистику "
-                "или /setuid чтобы обновить ник в Standoff 2.",
-                ephemeral=True,
-            )
-            return
-        self.db.create_player(
-            interaction.guild_id, interaction.user.id, interaction.user.display_name, standoff_id
-        )
-        await self.grant_player_role(interaction)
-        extra = f" Ник в Standoff 2: **{standoff_id}**."
-        await interaction.response.send_message(
-            f"Готово! Ты зарегистрирован со стартовым рейтингом **{config.START_ELO}**.{extra}",
-            ephemeral=True,
-        )
-
-    @app_commands.command(name="setuid", description="Указать/обновить свой ник или ID в Standoff 2")
+      @app_commands.command(name="setuid", description="Указать/обновить свой ник или ID в Standoff 2")
     @app_commands.describe(standoff_id="Твой ник или ID в Standoff 2")
     async def setuid(self, interaction: discord.Interaction, standoff_id: str):
         player = self.ensure_player(interaction.guild_id, interaction.user)
