@@ -19,7 +19,7 @@ EXTENSIONS = [
     "cogs.queue_cog",
     "cogs.match_cog",
     "cogs.moderation",
-    "cogs.logging_cog",  # <--- Добавили загрузку логов!
+    "cogs.logging_cog",  # <--- Теперь логи прописаны!
 ]
 
 
