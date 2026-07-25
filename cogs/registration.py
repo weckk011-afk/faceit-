@@ -42,7 +42,7 @@ class Registration(commands.Cog):
                     role, reason="Успешная регистрация в /register"
                 )
             except discord.Forbidden:
-                pass  # у бота не хватает прав/роль бота ниже целевой — админ должен поправить вручную
+                pass
 
     @app_commands.command(
         name="register", description="Зарегистрироваться в системе рейтинга"
@@ -122,36 +122,50 @@ class Registration(commands.Cog):
             f"Обновлено: Победы/Поражения **{wins}** / **{losses}**."
         )
 
-    @app_commands.command(name="profile", description="Показать профиль")
-    @app_commands.describe(user="Чей профиль показать")
+    @app_commands.command(name="profile", description="Показать профиль игрока")
+    @app_commands.describe(
+        league="Выберите лигу", user="Чей профиль показать (необязательно)"
+    )
+    @app_commands.choices(
+        league=[
+            app_commands.Choice(name="Pro", value="Pro"),
+            app_commands.Choice(name="Division", value="Division"),
+            app_commands.Choice(name="Prospect", value="Prospect"),
+        ]
+    )
     async def profile(
-        self, interaction: discord.Interaction, user: discord.Member = None
+        self,
+        interaction: discord.Interaction,
+        league: app_commands.Choice[str],
+        user: discord.Member = None,
     ):
         target = user or interaction.user
+        selected_league = league.value
 
-        # Словарь соответствия ролей на сервере и лиг (регистр букв не важен)
-        LEAGUE_ROLES = {
-            "pro league": "Pro",
-            "division": "Division",
-            "prospect": "Prospect",
+        # Соответствие выбраной лиги и роли на сервере
+        REQUIRED_ROLES = {
+            "Pro": "pro league",
+            "Division": "division",
+            "Prospect": "prospect",
         }
 
-        # Проверяем роли у пользователя
-        user_league = None
-        for role in target.roles:
-            role_name = role.name.lower()
-            if role_name in LEAGUE_ROLES:
-                user_league = LEAGUE_ROLES[role_name]
-                break
+        required_role_name = REQUIRED_ROLES[selected_league]
 
-        # Если у игрока НЕТ ролей лиг
-        if not user_league:
+        # Проверяем роли у пользователя
+        has_role = any(
+            role.name.lower() == required_role_name for role in target.roles
+        )
+
+        # Ошибка 1: Нет роли (скрытое сообщение)
+        if not has_role:
             await interaction.response.send_message(
                 f"У {target.mention} нет роли!", ephemeral=True
             )
             return
 
         player = self.db.get_player(interaction.guild_id, target.id)
+
+        # Ошибка 2: Не зарегистрирован (скрытое сообщение)
         if player is None:
             await interaction.response.send_message(
                 f"**{target.display_name}** ещё не зарегистрирован!",
@@ -159,9 +173,10 @@ class Registration(commands.Cog):
             )
             return
 
+        # Если все проверки пройдены, создаем и отправляем карточку
         await interaction.response.defer()
         buffer = await generate_profile_card(
-            target, player, league_name=user_league
+            target, player, league_name=selected_league
         )
         file = discord.File(buffer, filename="profile.png")
         await interaction.followup.send(file=file)
