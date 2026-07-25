@@ -19,6 +19,7 @@ EXTENSIONS = [
     "cogs.queue_cog",
     "cogs.match_cog",
     "cogs.tickets_cog",
+    "cogs.profile_cog",  # Подключаем профиль с выбором лиги
 ]
 
 
@@ -32,7 +33,7 @@ class FaceitLikeBot(commands.Bot):
         for ext in EXTENSIONS:
             await self.load_extension(ext)
         
-        # Синхронизируем команды глобально (появятся во всех чатах бота)
+        # Синхронизируем команды глобально
         synced = await self.tree.sync()
         logging.info(f"Синхронизировано {len(synced)} slash-команд.")
 
