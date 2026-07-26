@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import config
@@ -14,24 +15,116 @@ INTENTS.members = True
 INTENTS.voice_states = True
 INTENTS.message_content = True
 
-EXTENSIONS = [
-    "cogs.registration",
-    "cogs.queue_cog",
-    "cogs.match_cog",
-    "cogs.tickets_cog",
-]
+
+# --- КНОПКА ЗАКРЫТИЯ ТИКЕТА ---
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Закрыть тикет",
+        style=discord.ButtonStyle.danger,
+        emoji="🔒",
+        custom_id="close_ticket_btn_persistent",
+    )
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.response.send_message(
+                "Эту кнопку можно использовать только внутри ветки тикета!", 
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message("Тикет будет закрыт через 5 секунд...", ephemeral=False)
+        await asyncio.sleep(5)
+        try:
+            await interaction.channel.edit(archived=True, locked=True)
+        except Exception:
+            await interaction.channel.delete()
+
+
+# --- КНОПКА СОЗДАНИЯ ТИКЕТА ---
+class TicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Создать",
+        style=discord.ButtonStyle.success,
+        emoji="🪪",
+        custom_id="create_ticket_btn_persistent",
+    )
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user = interaction.user
+
+        for thread in interaction.channel.threads:
+            if f"-{user.id}" in thread.name:
+                await interaction.response.send_message(
+                    "У вас уже есть открытый тикет в этом канале!", ephemeral=True
+                )
+                return
+
+        try:
+            thread = await interaction.channel.create_thread(
+                name=f"тикет-{user.name}-{user.id}",
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+            )
+            await thread.add_user(user)
+
+            embed = discord.Embed(
+                title="🎫 Тикет создан",
+                description=(
+                    f"Привет, {user.mention}!\nОпишите вашу проблему или задайте вопрос."
+                    "\nПерсонал скоро ответит вам.\n\n"
+                    "Для закрытия тикета нажмите кнопку ниже."
+                ),
+                color=discord.Color.green(),
+            )
+            
+            close_view = CloseTicketView()
+            await thread.send(embed=embed, view=close_view)
+            
+            await interaction.response.send_message(
+                f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Не удалось создать тикет: {e}", ephemeral=True
+            )
 
 
 class FaceitLikeBot(commands.Bot):
-
     def __init__(self):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.db = Database()
 
     async def setup_hook(self):
-        for ext in EXTENSIONS:
-            await self.load_extension(ext)
-        
+        # Регистрируем команду тикетов прямо здесь, без папки cogs
+        @self.tree.command(
+            name="setup_ticket",
+            description="Опубликовать панель создания тикетов (админ)",
+        )
+        @app_commands.checks.has_permissions(administrator=True)
+        async def setup_ticket(interaction: discord.Interaction):
+            embed = discord.Embed(
+                title="Помощь по серверу",
+                description=(
+                    "**Создать тикет, в котором можно задать вопрос персоналу или отправить жалобу.**\n\n"
+                    "Каждое действие отображается в наших логах. Мы отслеживаем и наказываем участников, "
+                    "которые используют эту систему не по назначению.\n\n"
+                    "Полезные ссылки:\n"
+                    "• ПРАВИЛА ПРОЕКТА — #📖┃правила-проекта"
+                ),
+                color=discord.Color.dark_embed(),
+            )
+            view = TicketView()
+            await interaction.channel.send(embed=embed, view=view)
+            await interaction.response.send_message(
+                "Панель тикетов успешно опубликована!", ephemeral=True
+            )
+
         synced = await self.tree.sync()
         logging.info(f"Синхронизировано {len(synced)} slash-команд.")
 
@@ -48,10 +141,6 @@ async def main():
     try:
         async with bot:
             await bot.start(config.TOKEN)
-    except discord.LoginFailure:
-        logging.error(
-            "ОШИБКА АВТОРИЗАЦИИ: Указан неверный токен бота в настройках Railway!"
-        )
     except Exception as e:
         logging.error(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ СТАРТЕ БОТА: {e}")
 
