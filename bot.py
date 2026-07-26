@@ -160,8 +160,6 @@ async def generate_detailed_profile_card(
 
     level, min_elo, max_elo, progress = calculate_level_and_progress(league, elo_rating)
 
-    # Уровень теперь подписан цифрой на карточке (эмодзи выводится отдельно, в тексте сообщения,
-    # т.к. Pillow не умеет рисовать кастомные Discord-эмодзи как изображение без доп. загрузки).
     draw.text((360, 250), f"Lvl {level}", fill=(255, 200, 100), font=font_big)
 
     draw.text((450, 235), f"Level {level}", fill=(255, 255, 255), font=font_text)
@@ -321,24 +319,39 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
         await interaction.response.defer(ephemeral=True)
 
         user = interaction.user
+        guild = interaction.guild
         p_id = self.player_id.value
         nickname = self.game_name.value
 
         try:
             interaction.client.db.create_player(
-                guild_id=interaction.guild_id, user_id=user.id, nickname=nickname, standoff_id=p_id
+                guild_id=guild.id, user_id=user.id, nickname=nickname, standoff_id=p_id
             )
-            # create_player использует INSERT OR IGNORE, поэтому при повторной
-            # регистрации данные явно обновляем отдельными запросами.
-            interaction.client.db.update_nickname(interaction.guild_id, user.id, nickname)
-            interaction.client.db.set_standoff_id(interaction.guild_id, user.id, p_id)
+            interaction.client.db.update_nickname(guild.id, user.id, nickname)
+            interaction.client.db.set_standoff_id(guild.id, user.id, p_id)
         except Exception as e:
             logging.error(f"Ошибка регистрации игрока: {e}", exc_info=True)
-            await interaction.followup.send("❌ Не удалось сохранить регистрацию.", ephemeral=True)
+            await interaction.followup.send("❌ Не удалось сохранить регистрацию в базе данных.", ephemeral=True)
             return
 
+        # --- АВТОМАТИЧЕСКАЯ ВЫДАЧА РОЛИ «Игрок» ---
+        role_name = "Игрок"  # Можешь изменить название роли при необходимости
+        role = discord.utils.get(guild.roles, name=role_name)
+        role_warning = ""
+
+        if role:
+            try:
+                if role not in user.roles:
+                    await user.add_roles(role, reason="Успешная регистрация игрока")
+            except discord.Forbidden:
+                role_warning = "\n⚠️ *(Не удалось выдать роль: проверьте иерархию ролей бота)*"
+            except Exception:
+                pass
+        else:
+            role_warning = f"\n⚠️ *(Роль '{role_name}' не найдена на сервере)*"
+
         await interaction.followup.send(
-            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**\n*(Ваши текущие роли на сервере сохранены)*",
+            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**{role_warning}",
             ephemeral=True,
         )
 
@@ -355,17 +368,6 @@ class RegistrationView(discord.ui.View):
 # ==============================================================================
 # СИСТЕМА ОТПРАВКИ РЕЗУЛЬТАТОВ ИГР
 # ------------------------------------------------------------------------------
-# Поток: игрок жмёт "Отправить" в SUBMIT_RESULTS_CHANNEL_ID -> вводит номер игры
-# -> бот создаёт приватную ветку -> игрок прикрепляет скриншот -> бот пробует
-# распознать текст (OCR) -> заявка с распознанными (или пустыми) данными уходит
-# админам на проверку в этой же ветке -> админ жмёт "Опубликовать"/"Редактировать"/
-# "Отклонить" -> при публикации создаётся ветка в MATCH_HISTORY_CHANNEL_ID с
-# карточкой матча.
-#
-# ВАЖНО: заявки (pending_submissions) хранятся в памяти процесса. Если бот
-# перезапустится, пока заявка "в подвешенном" состоянии - она потеряется.
-# Для продакшена стоит перенести это хранилище в Database.
-# ==============================================================================
 
 SUBMIT_RESULTS_CHANNEL_ID = 1530918311489962168   # #отправить-результаты
 MATCH_HISTORY_CHANNEL_ID = 1530918363453325534    # #история-игр
@@ -374,14 +376,12 @@ RESULTS_NOTIFY_CHANNEL_ID = 1530922437192061010   # канал уведомле�
 KNOWN_MAPS = ["Dune", "Sandstone", "Province", "Prison", "Hanami", "Breeze", "Rust"]
 
 SCORE_PATTERN = re.compile(r"\b(\d{1,2})\s*[:\-]\s*(\d{1,2})\b")
-# Строка вида: "Ник  K  D  K/D  A  Rating" - как в таблице FACEIT-скрина.
 ROW_PATTERN = re.compile(
     r"([A-Za-zА-Яа-яЁё0-9_\.\-]{2,20})\s+(\d{1,3})\s+(\d{1,3})\s+[\d.]+\s+(\d{1,2})\s+([\d.]{1,4})"
 )
 
 
 def is_staff(member: discord.Member) -> bool:
-    """Кто может модерировать результаты. Поменяй на проверку конкретной роли, если нужно."""
     return member.guild_permissions.administrator or member.guild_permissions.manage_guild
 
 
@@ -400,7 +400,7 @@ class MatchSubmission:
     submitter_id: int
     thread_id: int
     league: str = "—"
-    status: str = "collecting"  # collecting -> processing -> pending_review -> published/rejected
+    status: str = "collecting"
     screenshot_url: str | None = None
     map_name: str = "Не распознано"
     score: str = "?:?"
@@ -410,7 +410,6 @@ class MatchSubmission:
     review_message_id: int | None = None
 
 
-# thread_id -> MatchSubmission
 pending_submissions: dict[int, MatchSubmission] = {}
 
 
@@ -426,8 +425,6 @@ def ocr_image_to_text(image_bytes: bytes) -> str:
 
 
 def parse_scoreboard_text(text: str) -> dict:
-    """Best-effort парсинг текста со скриншота. Точность не гарантирована -
-    именно поэтому есть шаг ручной проверки/редактирования админом."""
     result = {"map": None, "score": None, "rows": [], "mvp": None}
 
     score_match = SCORE_PATTERN.search(text)
@@ -785,10 +782,8 @@ class FaceitLikeBot(commands.Bot):
         self.http_session: aiohttp.ClientSession | None = None
 
     async def setup_hook(self):
-        # Общая aiohttp-сессия для неблокирующей загрузки иконок и т.п.
         self.http_session = aiohttp.ClientSession()
 
-        # Регистрируем persistent views, иначе кнопки перестанут отвечать после рестарта бота
         self.add_view(TicketView())
         self.add_view(CloseTicketView())
         self.add_view(RegistrationView())
@@ -839,8 +834,6 @@ class FaceitLikeBot(commands.Bot):
                 await interaction.followup.send(f"{target.display_name} не зарегистрирован.", ephemeral=True)
                 return
 
-            # sqlite3.Row поддерживает доступ по ключу (player["nickname"]),
-            # но НЕ поддерживает доступ через точку (player.nickname).
             player_name = player["nickname"] or target.display_name
             player_id_val = player["standoff_id"] or "Не указан"
 
