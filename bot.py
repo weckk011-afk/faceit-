@@ -44,55 +44,57 @@ def get_font(size: int):
 
 
 def generate_detailed_profile_card(member_name: str, player_id: str, league: str, stats: dict) -> io.BytesIO:
-    width, height = 900, 880
-    image = Image.new("RGB", (width, height), color=(18, 19, 23))
+    width, height = 900, 1180
+    image = Image.new("RGB", (width, height), color=(15, 16, 20))
     draw = ImageDraw.Draw(image)
 
-    # Крупные шрифты для никнейма, цифр и карточек
-    font_title = get_font(30)   
+    # Шрифты
+    font_title = get_font(44)   # Крупный никнейм (~1/4 ширины)
     font_header = get_font(16)
     font_text = get_font(15)
-    font_small = get_font(13)
-    font_big = get_font(30)
+    font_small = get_font(12)
+    font_big = get_font(32)
     font_num = get_font(24)
 
     # --- 1. ШАПКА ПРОФИЛЯ ---
-    draw.rounded_rectangle([30, 20, 870, 140], radius=12, fill=(28, 30, 36), outline=(45, 48, 56), width=1)
-    draw.rounded_rectangle([45, 40, 125, 120], radius=8, fill=(50, 53, 63))
+    draw.rounded_rectangle([30, 20, 870, 150], radius=12, fill=(24, 26, 32), outline=(40, 43, 52), width=1)
     
-    draw.text((145, 42), "#1549", fill=(130, 135, 145), font=font_small)
-    draw.text((145, 62), member_name, fill=(255, 255, 255), font=font_title)
-    draw.text((145, 102), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
+    # Квадрат для аватара
+    draw.rounded_rectangle([45, 35, 135, 135], radius=8, fill=(50, 53, 63))
+    
+    draw.text((155, 38), "#1549", fill=(130, 135, 145), font=font_small)
+    draw.text((155, 58), member_name, fill=(255, 255, 255), font=font_title)
+    draw.text((155, 112), f"ID: {player_id}", fill=(130, 135, 145), font=font_small)
 
-    draw.text((700, 60), league.upper(), fill=(255, 215, 0), font=font_title)
+    draw.text((680, 65), league.upper(), fill=(255, 215, 0), font=font_big)
 
     # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
-    draw.text((30, 160), "Statistic", fill=(180, 185, 195), font=font_header)
+    draw.text((30, 175), "Statistic", fill=(180, 185, 195), font=font_header)
     
     # Блок K/D круговой
-    draw.rounded_rectangle([30, 190, 310, 305], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.rounded_rectangle([30, 205, 310, 320], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     kd_val = str(stats.get("kd", "0.00"))
-    draw.text((50, 222), kd_val, fill=(255, 255, 255), font=font_big)
-    draw.text((150, 222), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
+    draw.text((50, 238), kd_val, fill=(255, 255, 255), font=font_big)
+    draw.text((150, 236), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
     kills = stats.get("kills", 0)
     deaths = stats.get("deaths", 0)
-    draw.text((150, 248), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
+    draw.text((150, 262), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
 
     # Блок Level / прогресс
-    draw.rounded_rectangle([330, 190, 870, 305], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 215), "Level", fill=(140, 145, 155), font=font_text)
-    draw.text((810, 210), "0", fill=(220, 100, 100), font=font_num)
-    draw.rounded_rectangle([360, 262, 840, 272], radius=4, fill=(50, 40, 50))
-    draw.rounded_rectangle([360, 262, 360, 272], radius=4, fill=(230, 50, 110))
+    draw.rounded_rectangle([330, 205, 870, 320], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((360, 230), "Level", fill=(140, 145, 155), font=font_text)
+    draw.text((810, 225), "0", fill=(220, 100, 100), font=font_num)
+    draw.rounded_rectangle([360, 277, 840, 287], radius=4, fill=(50, 40, 50))
+    draw.rounded_rectangle([360, 277, 360, 287], radius=4, fill=(230, 50, 110))
 
-    # Крупные плашки стат
+    # Плашки стат
     metrics = [
-        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 320),
-        ("AVG", str(stats.get("avg", "0")), "None", 319, 320),
-        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 320),
-        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 430),
-        ("Assists", str(stats.get("assists", "0")), "None", 319, 430),
-        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 430),
+        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 335),
+        ("AVG", str(stats.get("avg", "0")), "None", 319, 335),
+        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 335),
+        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 445),
+        ("Assists", str(stats.get("assists", "0")), "None", 319, 445),
+        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 445),
     ]
 
     for label, val, sub, x, y in metrics:
@@ -102,37 +104,41 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
         draw.text((x + 18, y + 68), sub, fill=(110, 115, 125), font=font_small)
 
     # --- 3. СЕКЦИЯ КАРТ (Map Statistic) ---
-    draw.text((30, 545), "Map Statistic", fill=(180, 185, 195), font=font_header)
+    draw.text((30, 560), "Map Statistic", fill=(180, 185, 195), font=font_header)
 
     # Общий Винрейт
-    draw.rounded_rectangle([30, 575, 310, 690], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.rounded_rectangle([30, 590, 310, 705], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     wins = stats.get("wins", 0)
     losses = stats.get("losses", 0)
     wr_val = 0
-    draw.text((50, 608), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
-    draw.text((150, 602), "Win Rate", fill=(140, 145, 155), font=font_small)
-    draw.text((150, 628), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
+    draw.text((50, 623), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
+    draw.text((150, 617), "Win Rate", fill=(140, 145, 155), font=font_small)
+    draw.text((150, 643), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
 
     # Best Map
-    draw.rounded_rectangle([330, 575, 870, 690], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 598), "None", fill=(255, 255, 255), font=font_num)
-    draw.text((360, 628), "W = 0    L = 0", fill=(140, 145, 155), font=font_small)
-    draw.text((360, 652), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
-    draw.text((790, 602), "BEST MAP", fill=(100, 105, 115), font=font_small)
+    draw.rounded_rectangle([330, 590, 870, 705], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((360, 613), "None", fill=(255, 255, 255), font=font_num)
+    draw.text((360, 643), "W = 0    L = 0", fill=(140, 145, 155), font=font_small)
+    draw.text((360, 667), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
+    draw.text((790, 617), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
-    # Крупные карточки мини-карт
+    # ВСЕ 7 КАРТ (Сетка 3 колонки, 7-я карта на последнем ряду по центру/справа)
     mini_maps = [
-        ("Sandstone", "0", "0", "0.00", "0%", 30, 710),
-        ("Province", "0", "0", "0.00", "0%", 319, 710),
-        ("Prison", "0", "0", "0.00", "0%", 608, 710),
+        ("Sandstone", "0", "0", "0.00", "0%", 30, 725),
+        ("Province", "0", "0", "0.00", "0%", 319, 725),
+        ("Prison", "0", "0", "0.00", "0%", 608, 725),
+        ("Hanami", "0", "0", "0.00", "0%", 30, 840),
+        ("Breeze", "0", "0", "0.00", "0%", 319, 840),
+        ("Dune", "0", "0", "0.00", "0%", 608, 840),
+        ("Zone 9", "0", "0", "0.00", "0%", 30, 955), # 7-я карта
     ]
 
     for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
-        draw.rounded_rectangle([x, y, x + 262, y + 130], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-        draw.text((x + 18, y + 14), m_name, fill=(255, 255, 255), font=font_text)
-        draw.text((x + 18, y + 42), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
-        draw.text((x + 18, y + 78), f"K/D = {m_kd}", fill=(210, 190, 110), font=font_num)
-        draw.text((x + 135, y + 78), f"W/R = {m_wr}", fill=(210, 190, 110), font=font_num)
+        draw.rounded_rectangle([x, y, x + 262, y + 100], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+        draw.text((x + 18, y + 12), m_name, fill=(255, 255, 255), font=font_text)
+        draw.text((x + 18, y + 38), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
+        draw.text((x + 18, y + 65), f"K/D = {m_kd}", fill=(210, 190, 110), font=font_small)
+        draw.text((x + 135, y + 65), f"W/R = {m_wr}", fill=(210, 190, 110), font=font_small)
 
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -268,7 +274,6 @@ class FaceitLikeBot(commands.Bot):
         ])
         @app_commands.describe(league="Выберите лигу", user="Чей профиль показать")
         async def profile(interaction: discord.Interaction, league: str, user: discord.Member = None):
-            # Защита от ошибки "Приложение не отвечает" (дает до 15 минут на генерацию)
             await interaction.response.defer(ephemeral=True)
 
             target = user or interaction.user
