@@ -10,7 +10,7 @@ TEAM_SIZE = 5                # игроков в команде
 QUEUE_SIZE = TEAM_SIZE * 2   # игроков нужно, чтобы начать матч
 
 # ELO
-START_ELO = 250
+START_ELO = 299
 ELO_K = 32
 
 # Пул карт для вето (Standoff 2)
