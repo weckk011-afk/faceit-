@@ -274,7 +274,7 @@ class FaceitLikeBot(commands.Bot):
         @self.tree.command(name="profile", description="Показать профиль и карточку статистики")
         @app_commands.describe(league="Выберите лигу (обязательно)", user="Чей профиль показать")
         @app_commands.choices(league=[
-            app_commands.Choice(name="PRO", value="PRO"),
+            app_commands.Choice(name="pro", value="pro"),
             app_commands.Choice(name="Division", value="Division"),
             app_commands.Choice(name="Prospect", value="Prospect")
         ])
