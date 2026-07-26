@@ -49,7 +49,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     draw = ImageDraw.Draw(image)
 
     # Шрифты
-    font_title = get_font(44)   # Крупный никнейм (~1/4 ширины)
+    font_title = get_font(60)   # Огромный никнейм
     font_header = get_font(16)
     font_text = get_font(15)
     font_small = get_font(12)
@@ -61,8 +61,10 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     
     # Квадрат для аватара
     draw.rounded_rectangle([45, 35, 135, 135], radius=8, fill=(50, 53, 63))
-    draw.text((155, 58), member_name, fill=(255, 255, 255), font=font_title)
-    draw.text((155, 112), f"ID: {player_id}", fill=(130, 135, 145), font=font_medium)
+    
+    # Никнейм и ID (без лишних символов)
+    draw.text((155, 45), member_name, fill=(255, 255, 255), font=font_title)
+    draw.text((155, 115), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
 
     draw.text((680, 65), league.upper(), fill=(255, 215, 0), font=font_big)
 
@@ -120,7 +122,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     draw.text((360, 667), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
     draw.text((790, 617), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
-    # ВСЕ 7 КАРТ (Сетка 3 колонки, 7-я карта на последнем ряду по центру/справа)
+    # ВСЕ 7 КАРТ (Сетка 3 колонки, 7-я карта на последнем ряду)
     mini_maps = [
         ("Sandstone", "0", "0", "0.00", "0%", 30, 725),
         ("Province", "0", "0", "0.00", "0%", 319, 725),
@@ -128,7 +130,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
         ("Hanami", "0", "0", "0.00", "0%", 30, 840),
         ("Breeze", "0", "0", "0.00", "0%", 319, 840),
         ("Dune", "0", "0", "0.00", "0%", 608, 840),
-        ("Rust", "0", "0", "0.00", "0%", 30, 955), # 7-я карта
+        ("Rust", "0", "0", "0.00", "0%", 30, 955), # Изменено на Rust
     ]
 
     for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
