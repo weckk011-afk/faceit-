@@ -20,11 +20,19 @@ INTENTS.message_content = True
 
 
 def get_font(size: int):
+    # Сначала ищем шрифт прямо в папке проекта (положи туда arial.ttf)
+    local_font = "arial.ttf"
+    if os.path.exists(local_font):
+        try:
+            return ImageFont.truetype(local_font, size)
+        except Exception:
+            pass
+
+    # Резервные пути в системе Linux
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "arial.ttf"
     ]
     for path in font_paths:
         if os.path.exists(path):
@@ -32,56 +40,95 @@ def get_font(size: int):
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
+                
+    logging.warning("Внимание: Не найден шрифт с поддержкой кириллицы! Положите файл arial.ttf в папку бота.")
     return ImageFont.load_default()
 
 
 def generate_detailed_profile_card(member_name: str, player_id: str, league: str, stats: dict) -> io.BytesIO:
-    width, height = 750, 480
-    image = Image.new("RGB", (width, height), color=(30, 31, 34))
+    width, height = 900, 950
+    image = Image.new("RGB", (width, height), color=(18, 19, 23))
     draw = ImageDraw.Draw(image)
 
-    league_colors = {
-        "pro": (255, 215, 0),
-        "division": (0, 162, 255),
-        "prospect": (128, 128, 128)
-    }
-    accent_color = league_colors.get(league, (0, 255, 0))
-    draw.rectangle([0, 0, 15, height], fill=accent_color)
-
-    font_title = get_font(20)
-    font_header = get_font(15)
+    font_title = get_font(22)
+    font_header = get_font(16)
     font_text = get_font(13)
+    font_small = get_font(11)
+    font_big = get_font(28)
 
-    draw.text((35, 25), f"СТАТИСТИКА: {member_name.upper()}", fill=(255, 255, 255), font=font_title)
-    draw.text((35, 55), f"ID: {player_id}   |   Лига: {league.upper()}", fill=accent_color, font=font_header)
-
-    total_matches = stats.get("total_matches", 0)
-    wins = stats.get("wins", 0)
-    losses = stats.get("losses", 0)
-    kd = stats.get("kd", "1.00")
-
-    draw.rectangle([35, 90, 715, 150], fill=(40, 42, 48), outline=(60, 64, 72))
-    draw.text((50, 110), f"Матчей: {total_matches}", fill=(220, 220, 220), font=font_header)
-    draw.text((220, 110), f"Побед/Поражений: {wins}/{losses}", fill=(100, 255, 100), font=font_header)
-    draw.text((490, 110), f"Общий K/D: {kd}", fill=(255, 200, 100), font=font_header)
-
-    draw.text((35, 170), "СТАТИСТИКА ПО КАРТАМ МАППУЛА:", fill=(200, 200, 200), font=font_header)
+    # --- 1. ШАПКА ПРОФИЛЯ ---
+    draw.rounded_rectangle([30, 25, 870, 140], radius=12, fill=(28, 30, 36), outline=(45, 48, 56), width=1)
+    draw.rounded_rectangle([50, 45, 120, 115], radius=8, fill=(50, 53, 63))
     
-    maps_data = stats.get("maps", {})
-    custom_map_pool = ["dune", "prison", "hanami", "breeze", "sandstone", "rust"]
-    
-    start_y = 205
-    for i, map_name in enumerate(custom_map_pool):
-        map_stats = maps_data.get(map_name, {"played": 0, "kd": "0.00"})
-        col = i % 2
-        row = i // 2
-        x = 35 + col * 350
-        y = start_y + row * 80
+    draw.text((145, 52), "#1549", fill=(130, 135, 145), font=font_text)
+    draw.text((145, 72), member_name, fill=(255, 255, 255), font=font_title)
+    draw.text((145, 102), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
 
-        draw.rectangle([x, y, x + 330, y + 65], fill=(45, 48, 54), outline=(60, 64, 72))
-        draw.text((x + 15, y + 22), f"{map_name.capitalize()}", fill=(255, 255, 255), font=font_header)
-        draw.text((x + 180, y + 24), f"Игр: {map_stats['played']}", fill=(180, 180, 180), font=font_text)
-        draw.text((x + 250, y + 24), f"K/D: {map_stats['kd']}", fill=(255, 200, 100), font=font_text)
+    draw.text((720, 60), league.upper(), fill=(255, 215, 0), font=font_header)
+
+    # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
+    draw.text((30, 170), "Statistic", fill=(180, 185, 195), font=font_header)
+    
+    draw.rounded_rectangle([30, 200, 310, 315], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    kd_val = str(stats.get("kd", "0.9"))
+    draw.text((60, 235), kd_val, fill=(255, 255, 255), font=font_big)
+    draw.text((150, 230), "Kill/Deaths", fill=(140, 145, 155), font=font_text)
+    kills = stats.get("kills", 171)
+    deaths = stats.get("deaths", 190)
+    draw.text((150, 255), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
+
+    draw.rounded_rectangle([330, 200, 870, 315], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((360, 225), "Level", fill=(140, 145, 155), font=font_text)
+    draw.text((810, 225), "234", fill=(220, 100, 100), font=font_text)
+    draw.rounded_rectangle([360, 270, 840, 280], radius=4, fill=(50, 40, 50))
+    draw.rounded_rectangle([360, 270, 600, 280], radius=4, fill=(230, 50, 110))
+
+    metrics = [
+        ("Rating", str(stats.get("rating", "0.95")), "Stable", 30, 330),
+        ("AVG", str(stats.get("avg", "16")), "Strong", 319, 330),
+        ("Impact", str(stats.get("impact", "0.9")), "Low", 608, 330),
+        ("KPR", str(stats.get("kpr", "0.69")), "Stable", 30, 440),
+        ("Assists", str(stats.get("assists", "32")), "Low", 319, 440),
+        ("SVR", str(stats.get("svr", "0.24")), "Low", 608, 440),
+    ]
+
+    for label, val, sub, x, y in metrics:
+        draw.rounded_rectangle([x, y, x + 262, y + 95], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+        draw.text((x + 20, y + 18), label, fill=(140, 145, 155), font=font_text)
+        draw.text((x + 20, y + 42), val, fill=(255, 255, 255), font=font_header)
+        draw.text((x + 20, y + 70), sub, fill=(110, 115, 125), font=font_small)
+
+    # --- 3. СЕКЦИЯ КАРТ (Map Statistic) ---
+    draw.text((30, 560), "Map Statistic", fill=(180, 185, 195), font=font_header)
+
+    draw.rounded_rectangle([30, 595, 310, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    wins = stats.get("wins", 3)
+    losses = stats.get("losses", 8)
+    wr_val = int((wins / (wins + losses) * 100)) if (wins + losses) > 0 else 0
+    draw.text((60, 630), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
+    draw.text((150, 625), "Win Rate", fill=(140, 145, 155), font=font_text)
+    draw.text((150, 655), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
+
+    draw.rounded_rectangle([330, 595, 870, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((360, 620), "Rust", fill=(255, 255, 255), font=font_header)
+    draw.text((360, 650), "W = 1    L = 1", fill=(140, 145, 155), font=font_text)
+    draw.text((360, 675), "K/D = 1.44    W/R = 50%", fill=(255, 200, 100), font=font_text)
+    draw.text((810, 630), "BEST MAP", fill=(100, 105, 115), font=font_small)
+
+    mini_maps = [
+        ("Sandstone", "0", "0", "0", "0%", 30, 735),
+        ("Province", "1", "1", "0.72", "50%", 319, 735),
+        ("Prison", "0", "1", "0.0", "0%", 608, 735),
+        ("Hanami", "0", "2", "0.92", "0%", 30, 840),
+        ("Breeze", "0", "2", "1.08", "0%", 319, 840),
+        ("Dune", "1", "1", "0.83", "50%", 608, 840),
+    ]
+
+    for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
+        draw.rounded_rectangle([x, y, x + 262, y + 95], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+        draw.text((x + 20, y + 18), m_name, fill=(255, 255, 255), font=font_text)
+        draw.text((x + 20, y + 42), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
+        draw.text((x + 20, y + 68), f"K/D = {m_kd}   W/R = {m_wr}", fill=(210, 190, 110), font=font_small)
 
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -107,7 +154,7 @@ class CloseTicketView(discord.ui.View):
             await interaction.channel.delete()
 
 
-# --- КНОПКА СОЗДАНИЯ ТИКЕТА С ДОБАВЛЕНИЕМ АДМИНОВ ---
+# --- КНОПКА СОЗДАНИЯ ТИКЕТА ---
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -155,42 +202,6 @@ class TicketView(discord.ui.View):
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Не удалось создать тикет: {e}", ephemeral=True)
-
-
-# --- ПАНЕЛЬ МАТЧА ---
-class MatchControlView(discord.ui.View):
-    def __init__(self, match_id: int, host_user_id: int):
-        super().__init__(timeout=None)
-        self.match_id = match_id
-        self.host_user_id = host_user_id
-
-    @discord.ui.button(label="Получить ID хоста", style=discord.ButtonStyle.secondary, emoji="👑", custom_id="get_host_id_btn")
-    async def get_host(self, interaction: discord.Interaction, button: discord.ui.Button):
-        player = interaction.client.db.get_player(interaction.guild_id, self.host_user_id)
-        h_id = "Не найден"
-        if player:
-            raw_name = getattr(player, "name", "")
-            if " | " in raw_name:
-                h_id = raw_name.split(" | ")[0]
-            else:
-                h_id = str(getattr(player, "player_id", self.host_user_id))
-        await interaction.response.send_message(f"👑 Игровой ID хоста лобби: **{h_id}**", ephemeral=True)
-
-    @discord.ui.button(label="Отправить результаты", style=discord.ButtonStyle.primary, emoji="📋", custom_id="send_results_btn")
-    async def send_results(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user = interaction.user
-        for thread in interaction.channel.threads:
-            if f"матч-{self.match_id}" in thread.name:
-                await interaction.response.send_message(f"Ветка уже открыта: {thread.mention}", ephemeral=True)
-                return
-        try:
-            thread = await interaction.channel.create_thread(name=f"результаты-матч-{self.match_id}", type=discord.ChannelType.private_thread, invitable=False)
-            await thread.add_user(user)
-            embed = discord.Embed(title=f"📋 Результаты Матча #{self.match_id}", description="Отправьте скриншот счета или итоги игры. Модераторы скоро проверят.", color=discord.Color.blue())
-            await thread.send(embed=embed)
-            await interaction.response.send_message(f"Ветка для отправки результатов создана: {thread.mention}", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"Ошибка: {e}", ephemeral=True)
 
 
 # --- МОДАЛЬНОЕ ОКНО РЕГИСТРАЦИИ ---
@@ -268,24 +279,24 @@ class FaceitLikeBot(commands.Bot):
 
             stats = {
                 "total_matches": getattr(player, "matches_played", 12),
-                "wins": getattr(player, "wins", 8),
-                "losses": getattr(player, "losses", 4),
-                "kd": getattr(player, "kd", "1.25"),
-                "maps": {
-                    "dune": {"played": 3, "kd": "1.30"},
-                    "prison": {"played": 2, "kd": "1.10"},
-                    "hanami": {"played": 2, "kd": "0.95"},
-                    "breeze": {"played": 2, "kd": "1.45"},
-                    "sandstone": {"played": 2, "kd": "1.20"},
-                    "rust": {"played": 1, "kd": "1.00"},
-                }
+                "wins": getattr(player, "wins", 3),
+                "losses": getattr(player, "losses", 8),
+                "kd": getattr(player, "kd", "0.9"),
+                "kills": 171,
+                "deaths": 190,
+                "rating": "0.95",
+                "avg": "16",
+                "impact": "0.9",
+                "kpr": "0.69",
+                "assists": "32",
+                "svr": "0.24"
             }
 
             card_buffer = generate_detailed_profile_card(player_name, player_id_val, league, stats)
             file = discord.File(fp=card_buffer, filename="profile.png")
             await interaction.response.send_message(file=file, ephemeral=True)
 
-        # --- АДМИН КОМАНДЫ (BAN, MUTE, WARN, ROLE) ---
+        # --- АДМИН КОМАНДЫ ---
 
         @self.tree.command(name="ban", description="Заблокировать участника на сервере")
         @app_commands.checks.has_permissions(ban_members=True)
@@ -330,12 +341,10 @@ class FaceitLikeBot(commands.Bot):
         @app_commands.describe(member="Участник", warn_level="Уровень предупреждения", reason="Причина")
         async def warn(interaction: discord.Interaction, member: discord.Member, warn_level: str, reason: str = "Не указана"):
             guild = interaction.guild
-            # Ищем роли на сервере по имени
             role_name = f"warn {warn_level}/3"
             role = discord.utils.get(guild.roles, name=role_name)
 
             if not role:
-                # Если роль не создана автоматически, пытаемся создать её
                 try:
                     role = await guild.create_role(name=role_name, reason="Автоматическое создание роли варна ботом")
                 except Exception:
@@ -382,7 +391,6 @@ class FaceitLikeBot(commands.Bot):
             except Exception as e:
                 await interaction.response.send_message(f"❌ Ошибка при изменении роли: {e}", ephemeral=True)
 
-        # Обработчик ошибок для проверки прав администратора/модератора
         @self.tree.error
         async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
             if isinstance(error, app_commands.MissingPermissions):
