@@ -325,9 +325,17 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
         nickname = self.game_name.value
 
         try:
-            interaction.client.db.add_player(guild_id=interaction.guild_id, user_id=user.id, player_id=p_id, name=nickname)
-        except TypeError:
-            interaction.client.db.add_player(guild_id=interaction.guild_id, user_id=user.id, name=f"{p_id} | {nickname}")
+            interaction.client.db.create_player(
+                guild_id=interaction.guild_id, user_id=user.id, nickname=nickname, standoff_id=p_id
+            )
+            # create_player использует INSERT OR IGNORE, поэтому при повторной
+            # регистрации данные явно обновляем отдельными запросами.
+            interaction.client.db.update_nickname(interaction.guild_id, user.id, nickname)
+            interaction.client.db.set_standoff_id(interaction.guild_id, user.id, p_id)
+        except Exception as e:
+            logging.error(f"Ошибка регистрации игрока: {e}", exc_info=True)
+            await interaction.followup.send("❌ Не удалось сохранить регистрацию.", ephemeral=True)
+            return
 
         await interaction.followup.send(
             f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**\n*(Ваши текущие роли на сервере сохранены)*",
@@ -595,19 +603,9 @@ class GameNumberModal(discord.ui.Modal, title="Отправка результа
             sub = MatchSubmission(game_number=num, submitter_id=user.id, thread_id=thread.id, league=self.league)
             pending_submissions[thread.id] = sub
 
-            admin_mentions = []
-            for member in interaction.guild.members:
-                if not member.bot and is_staff(member):
-                    try:
-                        await thread.add_user(member)
-                        admin_mentions.append(member.mention)
-                    except Exception:
-                        pass
-
             await thread.send(
                 f"{user.mention}, прикрепи **один скриншот** результатов игры **#{num}** "
-                "отдельным сообщением (можно без подписи).\n"
-                f"-# Уведомлены администраторы: {', '.join(admin_mentions) if admin_mentions else 'не найдены'}",
+                "отдельным сообщением (можно без подписи).",
                 view=CloseResultsThreadView(),
             )
             await interaction.followup.send(f"Ветка создана: {thread.mention}", ephemeral=True)
@@ -841,29 +839,28 @@ class FaceitLikeBot(commands.Bot):
                 await interaction.followup.send(f"{target.display_name} не зарегистрирован.", ephemeral=True)
                 return
 
-            player_name = target.display_name
-            player_id_val = "Не указан"
+            # sqlite3.Row поддерживает доступ по ключу (player["nickname"]),
+            # но НЕ поддерживает доступ через точку (player.nickname).
+            player_name = player["nickname"] or target.display_name
+            player_id_val = player["standoff_id"] or "Не указан"
 
-            if hasattr(player, "player_id"):
-                player_id_val = str(player.player_id)
-                player_name = str(getattr(player, "name", target.display_name))
-            elif isinstance(player, tuple):
-                if len(player) >= 4:
-                    player_id_val = str(player[2])
-                    player_name = str(player[3])
-                elif len(player) == 3:
-                    player_id_val = str(player[1])
-                    player_name = str(player[2])
-
-            if " | " in player_name and (player_id_val == "Не указан" or not player_id_val):
-                parts = player_name.split(" | ", 1)
-                player_id_val = parts[0]
-                player_name = parts[1]
+            kills = player["kills"] or 0
+            deaths = player["deaths"] or 0
+            kd_val = f"{(kills / deaths):.2f}" if deaths > 0 else f"{kills:.2f}"
 
             stats = {
-                "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
-                "kills": 0, "deaths": 0, "rating": "299", "avg": "0",
-                "impact": "0.00", "kpr": "0.00", "assists": 0, "svr": "0.00",
+                "total_matches": player["matches_played"] or 0,
+                "wins": player["wins"] or 0,
+                "losses": player["losses"] or 0,
+                "kd": kd_val,
+                "kills": kills,
+                "deaths": deaths,
+                "rating": str(player["elo"] or 0),
+                "avg": "0",
+                "impact": "0.00",
+                "kpr": "0.00",
+                "assists": 0,
+                "svr": "0.00",
             }
 
             try:
