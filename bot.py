@@ -270,17 +270,15 @@ class FaceitLikeBot(commands.Bot):
             await interaction.channel.send(embed=embed, view=RegistrationView())
             await interaction.response.send_message("Панель регистрации опубликована!", ephemeral=True)
 
-        # Команда profile с возвращенным выбором лиги
+        # Команда profile с обязательным выбором лиги (league идет перед user)
         @self.tree.command(name="profile", description="Показать профиль и карточку статистики")
-        @app_commands.describe(user="Чей профиль показать", league="Выберите лигу (опционально)")
+        @app_commands.describe(league="Выберите лигу (обязательно)", user="Чей профиль показать")
         @app_commands.choices(league=[
-            app_commands.Choice(name="Bronze", value="Bronze"),
-            app_commands.Choice(name="Silver", value="Silver"),
-            app_commands.Choice(name="Gold", value="Gold"),
-            app_commands.Choice(name="Diamond", value="Diamond"),
-            app_commands.Choice(name="Elite", value="Elite")
+            app_commands.Choice(name="PRO", value="PRO"),
+            app_commands.Choice(name="Division", value="Division"),
+            app_commands.Choice(name="Prospect", value="Prospect")
         ])
-        async def profile(interaction: discord.Interaction, user: discord.Member = None, league: app_commands.Choice[str] = None):
+        async def profile(interaction: discord.Interaction, league: app_commands.Choice[str], user: discord.Member = None):
             await interaction.response.defer(ephemeral=True)
 
             target = user or interaction.user
@@ -310,9 +308,8 @@ class FaceitLikeBot(commands.Bot):
                 player_id_val = parts[0]
                 player_name = parts[1]
 
-            # Если лига выбрана, добавляем её к никнейму, чтобы она отобразилась на картинке
-            if league:
-                player_name = f"[{league.name}] {player_name}"
+            # Добавляем обязательную лигу к никнейму, чтобы она отобразилась на картинке
+            player_name = f"[{league.name}] {player_name}"
 
             stats = {
                 "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
@@ -325,7 +322,7 @@ class FaceitLikeBot(commands.Bot):
                 file = discord.File(fp=card_buffer, filename="profile.png")
                 
                 # Добавляем красивый текстовый вывод лиги над картинкой
-                msg_content = f"🏆 **Текущая лига:** {league.name}" if league else ""
+                msg_content = f"🏆 **Текущая лига:** {league.name}"
                 
                 await interaction.followup.send(content=msg_content, file=file, ephemeral=True)
             except Exception as e:
