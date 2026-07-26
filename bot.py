@@ -361,6 +361,7 @@ class RegistrationView(discord.ui.View):
 
 SUBMIT_RESULTS_CHANNEL_ID = 1530918311489962168   # #отправить-результаты
 MATCH_HISTORY_CHANNEL_ID = 1530918363453325534    # #история-игр
+RESULTS_NOTIFY_CHANNEL_ID = 1530922437192061010   # канал уведомлений о новых заявках
 
 KNOWN_MAPS = ["Dune", "Sandstone", "Province", "Prison", "Hanami", "Breeze", "Rust"]
 
@@ -390,6 +391,7 @@ class MatchSubmission:
     game_number: str
     submitter_id: int
     thread_id: int
+    league: str = "—"
     status: str = "collecting"  # collecting -> processing -> pending_review -> published/rejected
     screenshot_url: str | None = None
     map_name: str = "Не распознано"
@@ -480,6 +482,7 @@ def generate_match_card(sub: MatchSubmission) -> io.BytesIO:
     draw.text((40, 72), f"Карта: {sub.map_name}", fill=(180, 185, 195), font=font_header)
     draw.text((320, 72), f"Счёт: {sub.score}", fill=(180, 185, 195), font=font_header)
     draw.text((560, 72), f"MVP: {sub.mvp}", fill=(255, 200, 100), font=font_header)
+    draw.text((width - 140, 32), sub.league.upper(), fill=(140, 145, 155), font=font_header)
 
     col_headers = ["Игрок", "K", "D", "A", "Rating"]
     col_x = [40, 440, 520, 600, 700]
@@ -513,12 +516,14 @@ class SubmitResultsView(discord.ui.View):
 
     @discord.ui.button(label="Отправить", style=discord.ButtonStyle.blurple, custom_id="submit_results_btn")
     async def submit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(GameNumberModal())
+        await interaction.response.send_message(
+            "Выбери лигу игры:", view=LeagueSelectView(), ephemeral=True
+        )
 
     @discord.ui.button(label="?", style=discord.ButtonStyle.secondary, custom_id="submit_results_help_btn")
     async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "1️⃣ Нажми **Отправить** и укажи номер игры.\n"
+            "1️⃣ Нажми **Отправить**, выбери лигу и укажи номер игры.\n"
             "2️⃣ В созданной ветке прикрепи **один скриншот** финального счёта/статистики.\n"
             "3️⃣ Бот попробует распознать данные и отправит их администраторам на проверку.\n"
             "4️⃣ После подтверждения результат появится в #история-игр.",
@@ -526,8 +531,30 @@ class SubmitResultsView(discord.ui.View):
         )
 
 
+class LeagueSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+
+    @discord.ui.select(
+        placeholder="Лига",
+        options=[
+            discord.SelectOption(label="pro", value="pro"),
+            discord.SelectOption(label="division", value="division"),
+            discord.SelectOption(label="prospect", value="prospect"),
+        ],
+        custom_id="submit_results_league_select",
+    )
+    async def league_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        league = select.values[0]
+        await interaction.response.send_modal(GameNumberModal(league=league))
+
+
 class GameNumberModal(discord.ui.Modal, title="Отправка результатов"):
     game_number = discord.ui.TextInput(label="Номер игры", placeholder="Например: 808479", required=True, max_length=20)
+
+    def __init__(self, league: str):
+        super().__init__()
+        self.league = league
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -543,14 +570,36 @@ class GameNumberModal(discord.ui.Modal, title="Отправка результа
             )
             await thread.add_user(user)
 
-            sub = MatchSubmission(game_number=num, submitter_id=user.id, thread_id=thread.id)
+            sub = MatchSubmission(game_number=num, submitter_id=user.id, thread_id=thread.id, league=self.league)
             pending_submissions[thread.id] = sub
+
+            admin_mentions = []
+            for member in interaction.guild.members:
+                if not member.bot and is_staff(member):
+                    try:
+                        await thread.add_user(member)
+                        admin_mentions.append(member.mention)
+                    except Exception:
+                        pass
 
             await thread.send(
                 f"{user.mention}, прикрепи **один скриншот** результатов игры **#{num}** "
-                "отдельным сообщением (можно без подписи)."
+                "отдельным сообщением (можно без подписи).\n"
+                f"-# Уведомлены администраторы: {', '.join(admin_mentions) if admin_mentions else 'не найдены'}"
             )
             await interaction.followup.send(f"Ветка создана: {thread.mention}", ephemeral=True)
+
+            try:
+                notify_channel = interaction.client.get_channel(RESULTS_NOTIFY_CHANNEL_ID) \
+                    or await interaction.client.fetch_channel(RESULTS_NOTIFY_CHANNEL_ID)
+                await notify_channel.send(
+                    f"{user.mention} отправил результаты игры **#{num}**\n"
+                    f"League: **{self.league}**\n\n"
+                    f"[Перейти в ветку]({thread.jump_url})"
+                )
+            except Exception as e:
+                logging.warning(f"Не удалось отправить уведомление о новой заявке: {e}")
+
         except Exception as e:
             logging.error(f"Ошибка создания ветки результатов: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Не удалось создать ветку: {e}", ephemeral=True)
@@ -561,6 +610,7 @@ async def build_review_embed(sub: MatchSubmission) -> discord.Embed:
         title=f"Игра #{sub.game_number} — на проверке",
         color=discord.Color.orange(),
     )
+    embed.add_field(name="League", value=sub.league, inline=True)
     embed.add_field(name="Карта", value=sub.map_name, inline=True)
     embed.add_field(name="Счёт", value=sub.score, inline=True)
     embed.add_field(name="MVP", value=sub.mvp, inline=True)
@@ -695,7 +745,7 @@ async def publish_match(bot: commands.Bot, sub: MatchSubmission):
     card_buffer = generate_match_card(sub)
     file = discord.File(fp=card_buffer, filename=f"match_{sub.game_number}.png")
     await match_thread.send(
-        content=f"🗺️ **{sub.map_name}** | Счёт: **{sub.score}** | 🏆 MVP: **{sub.mvp}**",
+        content=f"🗺️ **{sub.map_name}** | Счёт: **{sub.score}** | League: **{sub.league}** | 🏆 MVP: **{sub.mvp}**",
         file=file,
     )
 
@@ -1024,4 +1074,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
- 
