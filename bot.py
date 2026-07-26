@@ -3,6 +3,8 @@ import datetime
 import io
 import logging
 import os
+import re
+from dataclasses import dataclass, field
 
 import aiohttp
 import discord
@@ -12,6 +14,17 @@ from PIL import Image, ImageDraw, ImageFont
 
 import config
 from database import Database
+
+# pytesseract - опциональная зависимость для распознавания скриншотов.
+# Установка: pip install pytesseract  +  на сервере нужен бинарник tesseract-ocr
+# (apt install tesseract-ocr tesseract-ocr-rus). Если не установлено - OCR
+# просто отключается, и админам придётся заполнять данные вручную через "Редактировать".
+try:
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    pytesseract = None
+    OCR_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO)
 
@@ -331,6 +344,369 @@ class RegistrationView(discord.ui.View):
         await interaction.response.send_modal(RegistrationModal())
 
 
+# ==============================================================================
+# СИСТЕМА ОТПРАВКИ РЕЗУЛЬТАТОВ ИГР
+# ------------------------------------------------------------------------------
+# Поток: игрок жмёт "Отправить" в SUBMIT_RESULTS_CHANNEL_ID -> вводит номер игры
+# -> бот создаёт приватную ветку -> игрок прикрепляет скриншот -> бот пробует
+# распознать текст (OCR) -> заявка с распознанными (или пустыми) данными уходит
+# админам на проверку в этой же ветке -> админ жмёт "Опубликовать"/"Редактировать"/
+# "Отклонить" -> при публикации создаётся ветка в MATCH_HISTORY_CHANNEL_ID с
+# карточкой матча.
+#
+# ВАЖНО: заявки (pending_submissions) хранятся в памяти процесса. Если бот
+# перезапустится, пока заявка "в подвешенном" состоянии - она потеряется.
+# Для продакшена стоит перенести это хранилище в Database.
+# ==============================================================================
+
+SUBMIT_RESULTS_CHANNEL_ID = 1530918311489962168   # #отправить-результаты
+MATCH_HISTORY_CHANNEL_ID = 1530918363453325534    # #история-игр
+
+KNOWN_MAPS = ["Dune", "Sandstone", "Province", "Prison", "Hanami", "Breeze", "Rust"]
+
+SCORE_PATTERN = re.compile(r"\b(\d{1,2})\s*[:\-]\s*(\d{1,2})\b")
+# Строка вида: "Ник  K  D  K/D  A  Rating" - как в таблице FACEIT-скрина.
+ROW_PATTERN = re.compile(
+    r"([A-Za-zА-Яа-яЁё0-9_\.\-]{2,20})\s+(\d{1,3})\s+(\d{1,3})\s+[\d.]+\s+(\d{1,2})\s+([\d.]{1,4})"
+)
+
+
+def is_staff(member: discord.Member) -> bool:
+    """Кто может модерировать результаты. Поменяй на проверку конкретной роли, если нужно."""
+    return member.guild_permissions.administrator or member.guild_permissions.manage_guild
+
+
+@dataclass
+class PlayerRow:
+    name: str = "?"
+    k: str = "0"
+    d: str = "0"
+    a: str = "0"
+    rating: str = "0.00"
+
+
+@dataclass
+class MatchSubmission:
+    game_number: str
+    submitter_id: int
+    thread_id: int
+    status: str = "collecting"  # collecting -> processing -> pending_review -> published/rejected
+    screenshot_url: str | None = None
+    map_name: str = "Не распознано"
+    score: str = "?:?"
+    team_a: list = field(default_factory=list)
+    team_b: list = field(default_factory=list)
+    mvp: str = "Не распознано"
+    review_message_id: int | None = None
+
+
+# thread_id -> MatchSubmission
+pending_submissions: dict[int, MatchSubmission] = {}
+
+
+def ocr_image_to_text(image_bytes: bytes) -> str:
+    if not OCR_AVAILABLE:
+        return ""
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("L")
+        return pytesseract.image_to_string(img, lang="eng+rus")
+    except Exception as e:
+        logging.warning(f"OCR ошибка: {e}")
+        return ""
+
+
+def parse_scoreboard_text(text: str) -> dict:
+    """Best-effort парсинг текста со скриншота. Точность не гарантирована -
+    именно поэтому есть шаг ручной проверки/редактирования админом."""
+    result = {"map": None, "score": None, "rows": [], "mvp": None}
+
+    score_match = SCORE_PATTERN.search(text)
+    if score_match:
+        result["score"] = f"{score_match.group(1)}:{score_match.group(2)}"
+
+    lower_text = text.lower()
+    for map_name in KNOWN_MAPS:
+        if map_name.lower() in lower_text:
+            result["map"] = map_name
+            break
+
+    for match in ROW_PATTERN.finditer(text):
+        name, k, d, a, rating = match.groups()
+        result["rows"].append(PlayerRow(name=name, k=k, d=d, a=a, rating=rating))
+
+    if result["rows"]:
+        def _rating_val(row: PlayerRow) -> float:
+            try:
+                return float(row.rating)
+            except ValueError:
+                return 0.0
+        best = max(result["rows"], key=_rating_val)
+        result["mvp"] = f"{best.name} ({best.rating})"
+
+    return result
+
+
+def rows_to_text(rows: list) -> str:
+    return "\n".join(f"{r.name} {r.k} {r.d} {r.a} {r.rating}" for r in rows)
+
+
+def text_to_rows(text: str) -> list:
+    rows = []
+    for line in text.strip().splitlines():
+        parts = line.split()
+        if len(parts) >= 5:
+            name, k, d, a, rating = parts[0], parts[1], parts[2], parts[3], parts[4]
+            rows.append(PlayerRow(name=name, k=k, d=d, a=a, rating=rating))
+    return rows
+
+
+def generate_match_card(sub: MatchSubmission) -> io.BytesIO:
+    width = 900
+    row_h = 32
+    header_h = 110
+    rows_count = max(len(sub.team_a), len(sub.team_b), 1)
+    height = header_h + 2 * (56 + rows_count * row_h) + 40
+
+    image = Image.new("RGB", (width, height), color=(15, 16, 20))
+    draw = ImageDraw.Draw(image)
+
+    font_title = get_font(28)
+    font_header = get_font(15)
+    font_row = get_font(15)
+    font_small = get_font(12)
+
+    draw.rounded_rectangle([20, 20, width - 20, header_h - 10], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((40, 32), f"Игра #{sub.game_number}", fill=(255, 255, 255), font=font_title)
+    draw.text((40, 72), f"Карта: {sub.map_name}", fill=(180, 185, 195), font=font_header)
+    draw.text((320, 72), f"Счёт: {sub.score}", fill=(180, 185, 195), font=font_header)
+    draw.text((560, 72), f"MVP: {sub.mvp}", fill=(255, 200, 100), font=font_header)
+
+    col_headers = ["Игрок", "K", "D", "A", "Rating"]
+    col_x = [40, 440, 520, 600, 700]
+
+    def draw_team(team_name, rows, y, color):
+        draw.text((40, y), team_name, fill=color, font=font_header)
+        y += 26
+        for cx, h in zip(col_x, col_headers):
+            draw.text((cx, y), h, fill=(140, 145, 155), font=font_small)
+        y += 22
+        for row in rows:
+            vals = [row.name, row.k, row.d, row.a, row.rating]
+            for cx, v in zip(col_x, vals):
+                draw.text((cx, y), str(v), fill=(230, 230, 230), font=font_row)
+            y += row_h
+        return y + 10
+
+    y = header_h + 10
+    y = draw_team("Команда A", sub.team_a, y, (120, 170, 255))
+    draw_team("Команда B", sub.team_b, y, (255, 120, 120))
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+class SubmitResultsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Отправить", style=discord.ButtonStyle.blurple, custom_id="submit_results_btn")
+    async def submit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GameNumberModal())
+
+    @discord.ui.button(label="?", style=discord.ButtonStyle.secondary, custom_id="submit_results_help_btn")
+    async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "1️⃣ Нажми **Отправить** и укажи номер игры.\n"
+            "2️⃣ В созданной ветке прикрепи **один скриншот** финального счёта/статистики.\n"
+            "3️⃣ Бот попробует распознать данные и отправит их администраторам на проверку.\n"
+            "4️⃣ После подтверждения результат появится в #история-игр.",
+            ephemeral=True,
+        )
+
+
+class GameNumberModal(discord.ui.Modal, title="Отправка результатов"):
+    game_number = discord.ui.TextInput(label="Номер игры", placeholder="Например: 808479", required=True, max_length=20)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        user = interaction.user
+        num = self.game_number.value.strip()
+
+        try:
+            thread = await channel.create_thread(
+                name=f"результаты-{num}-{user.name}",
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+            )
+            await thread.add_user(user)
+
+            sub = MatchSubmission(game_number=num, submitter_id=user.id, thread_id=thread.id)
+            pending_submissions[thread.id] = sub
+
+            await thread.send(
+                f"{user.mention}, прикрепи **один скриншот** результатов игры **#{num}** "
+                "отдельным сообщением (можно без подписи)."
+            )
+            await interaction.followup.send(f"Ветка создана: {thread.mention}", ephemeral=True)
+        except Exception as e:
+            logging.error(f"Ошибка создания ветки результатов: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Не удалось создать ветку: {e}", ephemeral=True)
+
+
+async def build_review_embed(sub: MatchSubmission) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"Игра #{sub.game_number} — на проверке",
+        color=discord.Color.orange(),
+    )
+    embed.add_field(name="Карта", value=sub.map_name, inline=True)
+    embed.add_field(name="Счёт", value=sub.score, inline=True)
+    embed.add_field(name="MVP", value=sub.mvp, inline=True)
+    embed.add_field(name="Команда A", value=rows_to_text(sub.team_a) or "—", inline=False)
+    embed.add_field(name="Команда B", value=rows_to_text(sub.team_b) or "—", inline=False)
+    if sub.screenshot_url:
+        embed.set_image(url=sub.screenshot_url)
+    embed.set_footer(text="Проверь данные, при необходимости нажми «Редактировать», затем «Опубликовать».")
+    return embed
+
+
+class ReviewResultView(discord.ui.View):
+    def __init__(self, thread_id: int):
+        super().__init__(timeout=None)
+        self.thread_id = thread_id
+
+    @discord.ui.button(label="✅ Опубликовать", style=discord.ButtonStyle.success, custom_id="match_publish_btn")
+    async def publish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Только администраторы могут публиковать результаты.", ephemeral=True)
+            return
+        sub = pending_submissions.get(self.thread_id)
+        if not sub:
+            await interaction.response.send_message("❌ Заявка уже обработана или устарела.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        try:
+            await publish_match(interaction.client, sub)
+            pending_submissions.pop(self.thread_id, None)
+            await interaction.followup.send("✅ Результат опубликован в #история-игр.")
+        except Exception as e:
+            logging.error(f"Ошибка публикации матча: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Не удалось опубликовать: {e}")
+
+    @discord.ui.button(label="✏️ Редактировать", style=discord.ButtonStyle.primary, custom_id="match_edit_btn")
+    async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Только администраторы могут редактировать результаты.", ephemeral=True)
+            return
+        sub = pending_submissions.get(self.thread_id)
+        if not sub:
+            await interaction.response.send_message("❌ Заявка уже обработана или устарела.", ephemeral=True)
+            return
+        await interaction.response.send_modal(EditResultModal(sub))
+
+    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger, custom_id="match_reject_btn")
+    async def reject_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Только администраторы могут отклонять результаты.", ephemeral=True)
+            return
+        sub = pending_submissions.pop(self.thread_id, None)
+        await interaction.response.send_message("🚫 Результат отклонён.")
+        if sub:
+            try:
+                thread = interaction.client.get_channel(sub.thread_id) or await interaction.client.fetch_channel(sub.thread_id)
+                await thread.send("❌ Администратор отклонил результаты этой игры.")
+            except Exception:
+                pass
+
+
+class EditResultModal(discord.ui.Modal, title="Редактирование результата"):
+    def __init__(self, sub: MatchSubmission):
+        super().__init__()
+        self.sub = sub
+        self.map_score = discord.ui.TextInput(
+            label="Карта и счёт (через пробел)", default=f"{sub.map_name} {sub.score}", max_length=50
+        )
+        self.mvp = discord.ui.TextInput(label="MVP", default=sub.mvp, max_length=50, required=False)
+        self.team_a_text = discord.ui.TextInput(
+            label="Команда A: ник K D A Rating (по строке)",
+            style=discord.TextStyle.paragraph,
+            default=rows_to_text(sub.team_a),
+            required=False,
+            max_length=500,
+        )
+        self.team_b_text = discord.ui.TextInput(
+            label="Команда B: ник K D A Rating (по строке)",
+            style=discord.TextStyle.paragraph,
+            default=rows_to_text(sub.team_b),
+            required=False,
+            max_length=500,
+        )
+        self.add_item(self.map_score)
+        self.add_item(self.mvp)
+        self.add_item(self.team_a_text)
+        self.add_item(self.team_b_text)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw = self.map_score.value.strip()
+        parts = raw.rsplit(" ", 1)
+        if len(parts) == 2 and SCORE_PATTERN.fullmatch(parts[1].strip()):
+            self.sub.map_name, self.sub.score = parts[0].strip(), parts[1].strip()
+        else:
+            self.sub.map_name = raw
+
+        self.sub.mvp = self.mvp.value.strip() or self.sub.mvp
+        self.sub.team_a = text_to_rows(self.team_a_text.value)
+        self.sub.team_b = text_to_rows(self.team_b_text.value)
+
+        await interaction.response.defer(ephemeral=True)
+        await refresh_review_message(interaction.client, self.sub)
+        await interaction.followup.send("✏️ Изменения сохранены.", ephemeral=True)
+
+
+async def send_review_request(bot: commands.Bot, sub: MatchSubmission):
+    thread = bot.get_channel(sub.thread_id) or await bot.fetch_channel(sub.thread_id)
+    embed = await build_review_embed(sub)
+    msg = await thread.send(embed=embed, view=ReviewResultView(sub.thread_id))
+    sub.review_message_id = msg.id
+
+
+async def refresh_review_message(bot: commands.Bot, sub: MatchSubmission):
+    if not sub.review_message_id:
+        await send_review_request(bot, sub)
+        return
+    try:
+        thread = bot.get_channel(sub.thread_id) or await bot.fetch_channel(sub.thread_id)
+        msg = await thread.fetch_message(sub.review_message_id)
+        embed = await build_review_embed(sub)
+        await msg.edit(embed=embed, view=ReviewResultView(sub.thread_id))
+    except Exception as e:
+        logging.warning(f"Не удалось обновить сообщение проверки: {e}")
+        await send_review_request(bot, sub)
+
+
+async def publish_match(bot: commands.Bot, sub: MatchSubmission):
+    history_channel = bot.get_channel(MATCH_HISTORY_CHANNEL_ID) or await bot.fetch_channel(MATCH_HISTORY_CHANNEL_ID)
+    match_thread = await history_channel.create_thread(
+        name=f"Игра #{sub.game_number}",
+        type=discord.ChannelType.public_thread,
+    )
+    card_buffer = generate_match_card(sub)
+    file = discord.File(fp=card_buffer, filename=f"match_{sub.game_number}.png")
+    await match_thread.send(
+        content=f"🗺️ **{sub.map_name}** | Счёт: **{sub.score}** | 🏆 MVP: **{sub.mvp}**",
+        file=file,
+    )
+
+    try:
+        submit_thread = bot.get_channel(sub.thread_id) or await bot.fetch_channel(sub.thread_id)
+        await submit_thread.send("✅ Результаты опубликованы, ветка закрывается.")
+        await submit_thread.edit(archived=True, locked=True)
+    except Exception:
+        pass
+
+
 class FaceitLikeBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=INTENTS)
@@ -345,6 +721,7 @@ class FaceitLikeBot(commands.Bot):
         self.add_view(TicketView())
         self.add_view(CloseTicketView())
         self.add_view(RegistrationView())
+        self.add_view(SubmitResultsView())
 
         @self.tree.command(name="setup_ticket", description="Опубликовать панель тикетов")
         @app_commands.checks.has_permissions(administrator=True)
@@ -352,6 +729,20 @@ class FaceitLikeBot(commands.Bot):
             embed = discord.Embed(title="Помощь по серверу", description="Создать тикет для связи с персоналом.", color=discord.Color.dark_theme())
             await interaction.channel.send(embed=embed, view=TicketView())
             await interaction.response.send_message("Панель тикетов опубликована!", ephemeral=True)
+
+        @self.tree.command(name="setup_submit_results", description="Опубликовать панель отправки результатов")
+        @app_commands.checks.has_permissions(administrator=True)
+        async def setup_submit_results(interaction: discord.Interaction):
+            embed = discord.Embed(
+                title="Отправить результаты",
+                description=(
+                    "В этом канале вы **можете отправить результаты игры**.\n\n"
+                    "Просто **нажмите на кнопку** ниже и **укажите номер игры**."
+                ),
+                color=discord.Color.blue(),
+            )
+            await interaction.channel.send(embed=embed, view=SubmitResultsView())
+            await interaction.response.send_message("Панель отправки результатов опубликована!", ephemeral=True)
 
         @self.tree.command(name="postregister", description="Опубликовать панель регистрации")
         @app_commands.checks.has_permissions(administrator=True)
@@ -559,6 +950,62 @@ class FaceitLikeBot(commands.Bot):
         if self.http_session:
             await self.http_session.close()
         await super().close()
+
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+
+        sub = pending_submissions.get(message.channel.id)
+        if sub and sub.status == "collecting" and message.attachments:
+            image_attachment = next(
+                (a for a in message.attachments if a.content_type and a.content_type.startswith("image/")), None
+            )
+            if image_attachment:
+                sub.status = "processing"
+                sub.screenshot_url = image_attachment.url
+                processing_msg = await message.channel.send("🔎 Распознаю скриншот...")
+
+                try:
+                    image_bytes = await image_attachment.read()
+                    text = ocr_image_to_text(image_bytes)
+                    parsed = parse_scoreboard_text(text)
+
+                    if parsed["map"]:
+                        sub.map_name = parsed["map"]
+                    if parsed["score"]:
+                        sub.score = parsed["score"]
+                    if parsed["rows"]:
+                        sub.team_a = parsed["rows"][:5]
+                        sub.team_b = parsed["rows"][5:10]
+                    if parsed["mvp"]:
+                        sub.mvp = parsed["mvp"]
+
+                    sub.status = "pending_review"
+
+                    if not OCR_AVAILABLE:
+                        await processing_msg.edit(
+                            content="⚠️ OCR не установлен на сервере, данные не распознаны автоматически. "
+                            "Заявка отправлена админам — заполните вручную через «Редактировать»."
+                        )
+                    elif not parsed["rows"]:
+                        await processing_msg.edit(
+                            content="⚠️ Не удалось уверенно распознать таблицу игроков. "
+                            "Заявка отправлена админам на ручную проверку/редактирование."
+                        )
+                    else:
+                        await processing_msg.edit(content="✅ Скриншот обработан, заявка отправлена администраторам на проверку.")
+
+                    await send_review_request(self, sub)
+                except Exception as e:
+                    logging.error(f"Ошибка распознавания скриншота: {e}", exc_info=True)
+                    sub.status = "pending_review"
+                    await processing_msg.edit(
+                        content="⚠️ Произошла ошибка распознавания. Заявка всё равно отправлена админам — "
+                        "заполните данные вручную через «Редактировать»."
+                    )
+                    await send_review_request(self, sub)
+
+        await self.process_commands(message)
 
     async def on_ready(self):
         logging.info(f"Бот запущен как {self.user}")
