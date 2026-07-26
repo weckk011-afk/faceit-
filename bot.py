@@ -334,6 +334,18 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
             await interaction.followup.send("❌ Не удалось сохранить регистрацию в базе данных.", ephemeral=True)
             return
 
+        # --- АВТОМАТИЧЕСКАЯ СМЕНА НИКНЕЙМА НА СЕРВЕРЕ ---
+        nickname_warning = ""
+        try:
+            if guild.owner_id != user.id:
+                await user.edit(nick=nickname, reason="Регистрация игрока (авто-смена никнейма)")
+            else:
+                nickname_warning = "\n⚠️ *(Владельцу сервера бот не может изменить никнейм автоматически)*"
+        except discord.Forbidden:
+            nickname_warning = "\n⚠️ *(Не удалось изменить ник: у бота нет прав или роль выше роли участника)*"
+        except Exception as e:
+            logging.warning(f"Не удалось сменить ник при регистрации: {e}")
+
         # --- АВТОМАТИЧЕСКАЯ ВЫДАЧА РОЛИ «Игрок» ---
         role_name = "Игрок"  # Можешь изменить название роли при необходимости
         role = discord.utils.get(guild.roles, name=role_name)
@@ -351,7 +363,7 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
             role_warning = f"\n⚠️ *(Роль '{role_name}' не найдена на сервере)*"
 
         await interaction.followup.send(
-            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**{role_warning}",
+            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**{nickname_warning}{role_warning}",
             ephemeral=True,
         )
 
