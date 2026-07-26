@@ -1,10 +1,10 @@
 import asyncio
+import datetime
 import io
 import logging
 import os
-import urllib.request
-import aiohttp
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -19,6 +19,32 @@ INTENTS = discord.Intents.default()
 INTENTS.members = True
 INTENTS.voice_states = True
 INTENTS.message_content = True
+
+# ==============================================================================
+# ЭМОДЗИ УРОВНЕЙ (СЕРВЕРНЫЕ)
+# ------------------------------------------------------------------------------
+# Загрузи 10 эмодзи на сервер (Server Settings -> Emoji), затем в любом
+# текстовом канале напиши "\:имя_эмодзи:" (с обратным слэшем) - Discord
+# пришлёт полную запись вида "<:lvl1:123456789012345678>". Вставь эти
+# строки сюда вместо "REPLACE_ME".
+# ==============================================================================
+LEVEL_EMOJIS = {
+    1: "<:lvl1:1530900138761912501>",
+    2: "<:lvl2:1530909226388688966>",
+    3: "<:lvl3:1530909273121620099>",
+    4: "<:lvl4:1530909327634993323>",
+    5: "<:lvl5:1530909379883303014>",
+    6: "<:lvl6:1530909442047082536>",
+    7: "<:lvl7:1530909546955145216>",
+    8: "<:lvl8:1530909635228467380>",
+    9: "<:lvl9:1530909690706399392>",
+    10: "<:lvl10:1530909728438485142>",
+}
+
+
+def level_emoji(level: int) -> str:
+    emoji = LEVEL_EMOJIS.get(level, "REPLACE_ME")
+    return emoji if emoji != "REPLACE_ME" else "❓"
 
 
 def get_font(size: int):
@@ -36,7 +62,7 @@ def get_font(size: int):
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
-                
+
     logging.warning("⚠️ ВНИМАНИЕ: Шрифт не найден! Положите файл arial.ttf в папку с ботом.")
     return ImageFont.load_default()
 
@@ -46,30 +72,43 @@ def calculate_level_and_progress(league: str, elo: int):
     Вычисляет текущий уровень, границы ELO и процент прогресса на основе лиги.
     """
     league = league.lower()
-    
+
     if league == "pro":
         thresholds = [0, 399, 699, 999, 1299, 1599, 1899, 2199, 2599, 2799]
-    else: # Для prospect и division
+    else:  # Для prospect и division
         thresholds = [0, 200, 400, 600, 900, 1100, 1400, 1600, 1800, 2000]
 
     for i in range(9, -1, -1):
         if elo >= thresholds[i]:
             level = i + 1
             min_elo = thresholds[i]
-            
+
             if level < 10:
-                max_elo = thresholds[i+1]
+                max_elo = thresholds[i + 1]
                 progress_percent = (elo - min_elo) / (max_elo - min_elo)
             else:
                 max_elo = min_elo
                 progress_percent = 1.0
-            
+
             return level, min_elo, max_elo, progress_percent
-            
+
     return 1, 0, thresholds[1], 0.0
 
 
-def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict, league: str) -> io.BytesIO:
+async def fetch_level_icon_bytes(session: aiohttp.ClientSession, url: str) -> bytes | None:
+    """Асинхронная (не блокирующая event loop) загрузка иконки уровня."""
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status == 200:
+                return await resp.read()
+    except Exception as e:
+        logging.warning(f"Не удалось подгрузить иконку уровня: {e}")
+    return None
+
+
+async def generate_detailed_profile_card(
+    session: aiohttp.ClientSession, member_name: str, player_id: str, stats: dict, league: str
+) -> io.BytesIO:
     width, height = 900, 1180
     image = Image.new("RGB", (width, height), color=(15, 16, 20))
     draw = ImageDraw.Draw(image)
@@ -90,7 +129,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict
 
     # --- 2. СЕКЦИЯ СТАТИСТИКИ ---
     draw.text((30, 185), "Statistic", fill=(180, 185, 195), font=font_header)
-    
+
     # Блок K/D
     draw.rounded_rectangle([30, 215, 310, 330], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     kd_val = str(stats.get("kd", "0.00"))
@@ -98,60 +137,37 @@ def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict
     draw.text((150, 246), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
     draw.text((150, 272), f"K = {stats.get('kills', 0)}    D = {stats.get('deaths', 0)}", fill=(180, 185, 195), font=font_small)
 
-    # === БЛОК УРОВНЯ И ПРОГРЕССА С ИКОНКАМИ ИЗ ДИСКОРДА ===
+    # === БЛОК УРОВНЯ И ПРОГРЕССА ===
     draw.rounded_rectangle([330, 215, 870, 330], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    
+
     try:
         elo_rating = int(float(stats.get("rating", 299)))
     except ValueError:
         elo_rating = 299
-        
+
     level, min_elo, max_elo, progress = calculate_level_and_progress(league, elo_rating)
 
-    # Прямые ссылки на твои иконки уровней (1-10) из Discord
-    level_urls = {
-        1: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910572881776783/50CE3173-1CC1-4A3B-B1BE-1FCBE436EC0A.jpg",
-        2: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910759322652814/3DB57905-813B-4A40-8C50-94016ADC83C2.jpg",
-        3: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910862238289980/5EEC1B6E-A393-423D-A1BE-B7710252B2C2.jpg",
-        4: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910943838601216/CEB7DD75-E8AB-465A-B5FB-FEEAC80D1F18.jpg",
-        5: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911021634687128/CC8691F9-97C5-4D69-B0C3-FE500429D323.jpg",
-        6: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911093994815678/C40495CE-C26D-4DE5-8C8F-160055B8C198.jpg",
-        7: "https://cdn.discordapp.com/attachments/1530910275492909087/1530912920102502481/27599D79-C9A5-4585-8028-AFA637B086DB.jpg",
-        8: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911248940531733/719DDCA1-D4E9-4C21-B875-A9A809393715.jpg",
-        9: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911335011975259/9C4C84D4-B0FD-4C7A-8153-990D1483A2CC.jpg",
-        10: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911391006068889/2E34E6F7-281B-402C-86BF-253F1B698D46.jpg"
-    }
-
-    try:
-        url = level_urls.get(level, level_urls[1])
-        with urllib.request.urlopen(url) as response:
-            icon_data = response.read()
-            
-        icon = Image.open(io.BytesIO(icon_data)).convert("RGBA")
-        icon = icon.resize((80, 80))
-        image.paste(icon, (350, 235), icon)
-    except Exception as e:
-        logging.warning(f"Не удалось подгрузить иконку уровня: {e}")
-        draw.text((360, 250), f"Lvl {level}", fill=(255, 200, 100), font=font_big)
+    # Уровень теперь подписан цифрой на карточке (эмодзи выводится отдельно, в тексте сообщения,
+    # т.к. Pillow не умеет рисовать кастомные Discord-эмодзи как изображение без доп. загрузки).
+    draw.text((360, 250), f"Lvl {level}", fill=(255, 200, 100), font=font_big)
 
     draw.text((450, 235), f"Level {level}", fill=(255, 255, 255), font=font_text)
     draw.text((450, 260), f"{elo_rating} ELO", fill=(140, 145, 155), font=font_small)
-    
+
     if level < 10:
         draw.text((790, 260), f"{max_elo} ELO", fill=(140, 145, 155), font=font_small)
     else:
-        draw.text((790, 260), f"MAX", fill=(220, 100, 100), font=font_small)
+        draw.text((790, 260), "MAX", fill=(220, 100, 100), font=font_small)
 
     bar_x1, bar_y1 = 450, 287
     bar_x2, bar_y2 = 840, 297
-    
+
     draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=4, fill=(50, 40, 50))
-    
+
     fill_width = int((bar_x2 - bar_x1) * progress)
     if fill_width > 0:
-        fill_width = max(fill_width, 8) 
+        fill_width = max(fill_width, 8)
         draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=4, fill=(230, 50, 110))
-    # ===================================================================
 
     # Плашки стат
     metrics = [
@@ -233,6 +249,7 @@ class CloseTicketView(discord.ui.View):
         except Exception:
             await interaction.channel.delete()
 
+
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -249,9 +266,9 @@ class TicketView(discord.ui.View):
 
         try:
             thread = await interaction.channel.create_thread(
-                name=f"тикет-{user.name}-{user.id}", 
-                type=discord.ChannelType.private_thread, 
-                invitable=False
+                name=f"тикет-{user.name}-{user.id}",
+                type=discord.ChannelType.private_thread,
+                invitable=False,
             )
             await thread.add_user(user)
 
@@ -273,13 +290,15 @@ class TicketView(discord.ui.View):
                 ),
                 color=discord.Color.green(),
             )
-            
+
             await thread.send(content=" ".join(admin_mentions) if admin_mentions else "", embed=embed, view=CloseTicketView())
             await interaction.response.send_message(f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True)
 
         except Exception as e:
+            logging.error(f"Ошибка создания тикета: {e}", exc_info=True)
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Не удалось создать тикет: {e}", ephemeral=True)
+
 
 class RegistrationModal(discord.ui.Modal, title="Регистрация игрока"):
     player_id = discord.ui.TextInput(label="Игровой ID", placeholder="Введите ваш ID...", required=True, max_length=30)
@@ -298,9 +317,10 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
             interaction.client.db.add_player(guild_id=interaction.guild_id, user_id=user.id, name=f"{p_id} | {nickname}")
 
         await interaction.followup.send(
-            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**\n*(Ваши текущие роли на сервере сохранены)*", 
-            ephemeral=True
+            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**\n*(Ваши текущие роли на сервере сохранены)*",
+            ephemeral=True,
         )
+
 
 class RegistrationView(discord.ui.View):
     def __init__(self):
@@ -310,16 +330,26 @@ class RegistrationView(discord.ui.View):
     async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(RegistrationModal())
 
+
 class FaceitLikeBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.db = Database()
+        self.http_session: aiohttp.ClientSession | None = None
 
     async def setup_hook(self):
+        # Общая aiohttp-сессия для неблокирующей загрузки иконок и т.п.
+        self.http_session = aiohttp.ClientSession()
+
+        # Регистрируем persistent views, иначе кнопки перестанут отвечать после рестарта бота
+        self.add_view(TicketView())
+        self.add_view(CloseTicketView())
+        self.add_view(RegistrationView())
+
         @self.tree.command(name="setup_ticket", description="Опубликовать панель тикетов")
         @app_commands.checks.has_permissions(administrator=True)
         async def setup_ticket(interaction: discord.Interaction):
-            embed = discord.Embed(title="Помощь по серверу", description="Создать тикет для связи с персоналом.", color=discord.Color.dark_embed())
+            embed = discord.Embed(title="Помощь по серверу", description="Создать тикет для связи с персоналом.", color=discord.Color.dark_theme())
             await interaction.channel.send(embed=embed, view=TicketView())
             await interaction.response.send_message("Панель тикетов опубликована!", ephemeral=True)
 
@@ -330,13 +360,12 @@ class FaceitLikeBot(commands.Bot):
             await interaction.channel.send(embed=embed, view=RegistrationView())
             await interaction.response.send_message("Панель регистрации опубликована!", ephemeral=True)
 
-        # Команда profile с обязательным выбором лиги и дефолтным эло 299
         @self.tree.command(name="profile", description="Показать профиль и карточку статистики")
         @app_commands.describe(league="Выберите лигу (обязательно)", user="Чей профиль показать")
         @app_commands.choices(league=[
             app_commands.Choice(name="pro", value="pro"),
             app_commands.Choice(name="division", value="division"),
-            app_commands.Choice(name="prospect", value="prospect")
+            app_commands.Choice(name="prospect", value="prospect"),
         ])
         async def profile(interaction: discord.Interaction, league: app_commands.Choice[str], user: discord.Member = None):
             await interaction.response.defer(ephemeral=True)
@@ -369,65 +398,52 @@ class FaceitLikeBot(commands.Bot):
             stats = {
                 "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
                 "kills": 0, "deaths": 0, "rating": "299", "avg": "0",
-                "impact": "0.00", "kpr": "0.00", "assists": 0, "svr": "0.00"
+                "impact": "0.00", "kpr": "0.00", "assists": 0, "svr": "0.00",
             }
 
             try:
-                card_buffer = generate_detailed_profile_card(player_name, player_id_val, stats, league.value)
+                card_buffer = await generate_detailed_profile_card(self.http_session, player_name, player_id_val, stats, league.value)
                 file = discord.File(fp=card_buffer, filename="profile.png")
-                
-                msg_content = f"🏆 **Текущая лига:** {league.name.upper()}"
-                
+
+                elo_rating = int(float(stats.get("rating", 299)))
+                level, *_ = calculate_level_and_progress(league.value, elo_rating)
+                msg_content = f"🏆 **Лига:** {league.name.upper()} | {level_emoji(level)} Уровень {level}"
+
                 await interaction.followup.send(content=msg_content, file=file, ephemeral=True)
             except Exception as e:
-                logging.error(f"Ошибка при создании профиля: {e}")
+                logging.error(f"Ошибка при создании профиля: {e}", exc_info=True)
                 await interaction.followup.send("❌ Произошла ошибка при генерации карточки профиля.", ephemeral=True)
 
-        # Команда /ranks с иерархией prospect -> division -> pro
         @self.tree.command(name="ranks", description="Показать список рангов и систему ELO")
         async def ranks(interaction: discord.Interaction):
+            prospect_division_thresholds = [
+                (0, 199), (200, 399), (400, 599), (600, 899), (900, 1099),
+                (1100, 1399), (1400, 1599), (1600, 1799), (1800, 1999), (2000, None),
+            ]
+            pro_thresholds = [
+                (0, 398), (399, 698), (699, 998), (999, 1298), (1299, 1598),
+                (1599, 1898), (1899, 2198), (2199, 2598), (2599, 2798), (2799, None),
+            ]
+
+            def format_block(title: str, thresholds: list) -> str:
+                lines = [f"**{title}**"]
+                for i, (lo, hi) in enumerate(thresholds, start=1):
+                    rng = f"[{lo}-{hi}]" if hi is not None else f"[{lo}+]"
+                    lines.append(f"{level_emoji(i)} - {rng}")
+                return "\n".join(lines)
+
             description = (
-                "**@prospect league** (Низшая)\n"
-                "1️⃣ - [0-199]\n"
-                "2️⃣ - [200-399]\n"
-                "3️⃣ - [400-599]\n"
-                "4️⃣ - [600-899]\n"
-                "5️⃣ - [900-1099]\n"
-                "6️⃣ - [1100-1399]\n"
-                "7️⃣ - [1400-1599]\n"
-                "8️⃣ - [1600-1799]\n"
-                "9️⃣ - [1800-1999]\n"
-                "🔟 - [2000+]\n\n"
-                
-                "**@division league** (Средняя)\n"
-                "1️⃣ - [0-199]\n"
-                "2️⃣ - [200-399]\n"
-                "3️⃣ - [400-599]\n"
-                "4️⃣ - [600-899]\n"
-                "5️⃣ - [900-1099]\n"
-                "6️⃣ - [1100-1399]\n"
-                "7️⃣ - [1400-1599]\n"
-                "8️⃣ - [1600-1799]\n"
-                "9️⃣ - [1800-1999]\n"
-                "🔟 - [2000+]\n\n"
-                
-                "**@pro league** (Высшая)\n"
-                "1️⃣ - [0-398]\n"
-                "2️⃣ - [399-698]\n"
-                "3️⃣ - [699-998]\n"
-                "4️⃣ - [999-1298]\n"
-                "5️⃣ - [1299-1598]\n"
-                "6️⃣ - [1599-1898]\n"
-                "7️⃣ - [1899-2198]\n"
-                "8️⃣ - [2199-2598]\n"
-                "9️⃣ - [2599-2798]\n"
-                "🔟 - [2799+]"
+                format_block("@prospect league", prospect_division_thresholds)
+                + "\n\n"
+                + format_block("@division league", prospect_division_thresholds)
+                + "\n\n"
+                + format_block("@pro league", pro_thresholds)
             )
-            
+
             embed = discord.Embed(
                 title="Список рангов",
                 description=description,
-                color=discord.Color.dark_theme()
+                color=discord.Color.dark_theme(),
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -452,11 +468,14 @@ class FaceitLikeBot(commands.Bot):
 
         @self.tree.command(name="mute", description="Замутить участника (выдать таймаут)")
         @app_commands.checks.has_permissions(moderate_members=True)
-        @app_commands.describe(member="Участник", minutes="Время мута в минутах", reason="Причина")
-        async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "Не указана"):
-            duration = discord.utils.utcnow() + discord.timedelta(minutes=minutes)
-            await member.timeout(duration, reason=reason)
-            await interaction.response.send_message(f"✅ Пользователь {member.mention} заглушен на {minutes} мин. Причина: {reason}", ephemeral=True)
+        @app_commands.describe(member="Участник", minutes="Время мута в минутах (1-40320)", reason="Причина")
+        async def mute(interaction: discord.Interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: str = "Не указана"):
+            duration = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
+            try:
+                await member.timeout(duration, reason=reason)
+                await interaction.response.send_message(f"✅ Пользователь {member.mention} заглушен на {minutes} мин. Причина: {reason}", ephemeral=True)
+            except discord.HTTPException as e:
+                await interaction.response.send_message(f"❌ Не удалось выдать таймаут: {e}", ephemeral=True)
 
         @self.tree.command(name="unmute", description="Снять мут с участника")
         @app_commands.checks.has_permissions(moderate_members=True)
@@ -531,10 +550,15 @@ class FaceitLikeBot(commands.Bot):
                 if not interaction.response.is_done():
                     await interaction.response.send_message("❌ У вас недостаточно прав для выполнения этой команды!", ephemeral=True)
             else:
-                logging.error(f"Ошибка в слеш-команде: {error}")
+                logging.error(f"Ошибка в слеш-команде: {error}", exc_info=True)
 
         synced = await self.tree.sync()
         logging.info(f"Синхронизировано {len(synced)} команд.")
+
+    async def close(self):
+        if self.http_session:
+            await self.http_session.close()
+        await super().close()
 
     async def on_ready(self):
         logging.info(f"Бот запущен как {self.user}")
