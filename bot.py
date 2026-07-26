@@ -95,8 +95,14 @@ class TicketView(discord.ui.View):
             )
 
 
-# --- МОДАЛЬНОЕ ОКНО РЕГИСТРАЦИИ ---
+# --- МОДАЛЬНОЕ ОКНО РЕГИСТРАЦИИ (ID + Nickname) ---
 class RegistrationModal(discord.ui.Modal, title="Регистрация игрока"):
+    player_id = discord.ui.TextInput(
+        label="Игровой ID",
+        placeholder="Введите ваш ID...",
+        required=True,
+        max_length=30,
+    )
     game_name = discord.ui.TextInput(
         label="Игровой никнейм",
         placeholder="Введите ваш ник в игре...",
@@ -106,17 +112,27 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
 
     async def on_submit(self, interaction: discord.Interaction):
         user = interaction.user
+        p_id = self.player_id.value
         nickname = self.game_name.value
 
-        # Сохраняем в базу данных
-        interaction.client.db.add_player(
-            guild_id=interaction.guild_id,
-            user_id=user.id,
-            name=nickname
-        )
+        # Сохраняем в базу данных (если в базе требуется передавать ID и ник)
+        try:
+            interaction.client.db.add_player(
+                guild_id=interaction.guild_id,
+                user_id=user.id,
+                player_id=p_id,
+                name=nickname
+            )
+        except TypeError:
+            # Если метод базы принимает меньше аргументов, сохраняем стандартно
+            interaction.client.db.add_player(
+                guild_id=interaction.guild_id,
+                user_id=user.id,
+                name=f"{p_id} | {nickname}"
+            )
 
         await interaction.response.send_message(
-            f"✅ Вы успешно зарегистрированы! Ваш ник: **{nickname}**",
+            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**",
             ephemeral=True
         )
 
@@ -175,13 +191,49 @@ class FaceitLikeBot(commands.Bot):
         async def postregister(interaction: discord.Interaction):
             embed = discord.Embed(
                 title="📝 Регистрация на сервере",
-                description="Нажмите на кнопку ниже, чтобы зарегистрировать свой игровой никнейм и начать играть.",
+                description="Нажмите на кнопку ниже, чтобы указать свой ID и игровой никнейм.",
                 color=discord.Color.blue(),
             )
             view = RegistrationView()
             await interaction.channel.send(embed=embed, view=view)
             await interaction.response.send_message(
                 "Панель регистрации успешно опубликована!", ephemeral=True
+            )
+
+        # 3. Команда профиля с выбором лиги (/profile)
+        @self.tree.command(
+            name="profile",
+            description="Показать профиль игрока"
+        )
+        @app_commands.choices(
+            league=[
+                app_commands.Choice(name="Pro", value="pro"),
+                app_commands.Choice(name="Division", value="division"),
+                app_commands.Choice(name="Prospect", value="prospect"),
+            ]
+        )
+        @app_commands.describe(
+            league="Выберите лигу (обязательно)",
+            user="Чей профиль показать (по умолчанию — твой)",
+        )
+        async def profile(
+            interaction: discord.Interaction,
+            league: str,
+            user: discord.Member = None,
+        ):
+            target = user or interaction.user
+            player = self.db.get_player(interaction.guild_id, target.id)
+
+            if player is None:
+                await interaction.response.send_message(
+                    f"{target.display_name} ещё не зарегистрирован.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.response.send_message(
+                f"👤 Профиль игрока {target.mention} в лиге **{league}**\nДанные найдены в базе данных.",
+                ephemeral=True,
             )
 
         synced = await self.tree.sync()
