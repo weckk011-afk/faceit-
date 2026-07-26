@@ -270,13 +270,13 @@ class FaceitLikeBot(commands.Bot):
             await interaction.channel.send(embed=embed, view=RegistrationView())
             await interaction.response.send_message("Панель регистрации опубликована!", ephemeral=True)
 
-        # Команда profile с обязательным выбором лиги (league идет перед user)
+        # Команда profile со строчными названиями лиг
         @self.tree.command(name="profile", description="Показать профиль и карточку статистики")
         @app_commands.describe(league="Выберите лигу (обязательно)", user="Чей профиль показать")
         @app_commands.choices(league=[
-            app_commands.Choice(name="pro", value=“pro),
-            app_commands.Choice(name="Division", value=“Division),
-            app_commands.Choice(name="Prospect", value=“Prospect),
+            app_commands.Choice(name="pro", value="pro"),
+            app_commands.Choice(name="division", value="division"),
+            app_commands.Choice(name="prospect", value="prospect")
         ])
         async def profile(interaction: discord.Interaction, league: app_commands.Choice[str], user: discord.Member = None):
             await interaction.response.defer(ephemeral=True)
@@ -308,9 +308,6 @@ class FaceitLikeBot(commands.Bot):
                 player_id_val = parts[0]
                 player_name = parts[1]
 
-            # Добавляем обязательную лигу к никнейму, чтобы она отобразилась на картинке
-            player_name = f"[{league.name}] {player_name}"
-
             stats = {
                 "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
                 "kills": 0, "deaths": 0, "rating": "0.00", "avg": "0",
@@ -318,11 +315,12 @@ class FaceitLikeBot(commands.Bot):
             }
 
             try:
+                # В генератор передаем чистый player_name, без приписок лиги в скобках
                 card_buffer = generate_detailed_profile_card(player_name, player_id_val, stats)
                 file = discord.File(fp=card_buffer, filename="profile.png")
                 
-                # Добавляем красивый текстовый вывод лиги над картинкой
-                msg_content = f"🏆 **Текущая лига:** {league.name}"
+                # Добавляем красивый текстовый вывод лиги над картинкой, раз её нет внутри
+                msg_content = f"🏆 **Текущая лига:** {league.name.upper()}"
                 
                 await interaction.followup.send(content=msg_content, file=file, ephemeral=True)
             except Exception as e:
