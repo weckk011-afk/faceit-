@@ -549,6 +549,28 @@ class LeagueSelectView(discord.ui.View):
         await interaction.response.send_modal(GameNumberModal(league=league))
 
 
+class CloseResultsThreadView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔒 Закрыть ветку", style=discord.ButtonStyle.danger, custom_id="close_results_thread_btn")
+    async def close_thread(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            await interaction.response.send_message("❌ Закрыть ветку может только модератор.", ephemeral=True)
+            return
+
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.response.send_message("Только внутри ветки!", ephemeral=True)
+            return
+
+        pending_submissions.pop(interaction.channel.id, None)
+        await interaction.response.send_message(f"🔒 Ветка закрыта модератором {interaction.user.mention}.")
+        try:
+            await interaction.channel.edit(archived=True, locked=True)
+        except Exception:
+            pass
+
+
 class GameNumberModal(discord.ui.Modal, title="Отправка результатов"):
     game_number = discord.ui.TextInput(label="Номер игры", placeholder="Например: 808479", required=True, max_length=20)
 
@@ -585,7 +607,8 @@ class GameNumberModal(discord.ui.Modal, title="Отправка результа
             await thread.send(
                 f"{user.mention}, прикрепи **один скриншот** результатов игры **#{num}** "
                 "отдельным сообщением (можно без подписи).\n"
-                f"-# Уведомлены администраторы: {', '.join(admin_mentions) if admin_mentions else 'не найдены'}"
+                f"-# Уведомлены администраторы: {', '.join(admin_mentions) if admin_mentions else 'не найдены'}",
+                view=CloseResultsThreadView(),
             )
             await interaction.followup.send(f"Ветка создана: {thread.mention}", ephemeral=True)
 
@@ -772,6 +795,7 @@ class FaceitLikeBot(commands.Bot):
         self.add_view(CloseTicketView())
         self.add_view(RegistrationView())
         self.add_view(SubmitResultsView())
+        self.add_view(CloseResultsThreadView())
 
         @self.tree.command(name="setup_ticket", description="Опубликовать панель тикетов")
         @app_commands.checks.has_permissions(administrator=True)
