@@ -50,46 +50,50 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     image = Image.new("RGB", (width, height), color=(18, 19, 23))
     draw = ImageDraw.Draw(image)
 
-    font_title = get_font(22)
-    font_header = get_font(16)
-    font_text = get_font(13)
-    font_small = get_font(11)
-    font_big = get_font(28)
+    # Увеличенные размеры шрифтов
+    font_title = get_font(26)
+    font_header = get_font(18)
+    font_text = get_font(15)
+    font_small = get_font(13)
+    font_big = get_font(34)
 
     # --- 1. ШАПКА ПРОФИЛЯ ---
     draw.rounded_rectangle([30, 25, 870, 140], radius=12, fill=(28, 30, 36), outline=(45, 48, 56), width=1)
     draw.rounded_rectangle([50, 45, 120, 115], radius=8, fill=(50, 53, 63))
     
-    draw.text((145, 52), "#1549", fill=(130, 135, 145), font=font_text)
+    draw.text((145, 50), "#1549", fill=(130, 135, 145), font=font_text)
     draw.text((145, 72), member_name, fill=(255, 255, 255), font=font_title)
-    draw.text((145, 102), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
+    draw.text((145, 106), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
 
-    draw.text((720, 60), league.upper(), fill=(255, 215, 0), font=font_header)
+    draw.text((700, 60), league.upper(), fill=(255, 215, 0), font=font_header)
 
     # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
     draw.text((30, 170), "Statistic", fill=(180, 185, 195), font=font_header)
     
+    # Блок K/D круговой (по нулям)
     draw.rounded_rectangle([30, 200, 310, 315], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    kd_val = str(stats.get("kd", "0.9"))
+    kd_val = str(stats.get("kd", "0.00"))
     draw.text((60, 235), kd_val, fill=(255, 255, 255), font=font_big)
     draw.text((150, 230), "Kill/Deaths", fill=(140, 145, 155), font=font_text)
-    kills = stats.get("kills", 171)
-    deaths = stats.get("deaths", 190)
-    draw.text((150, 255), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
+    kills = stats.get("kills", 0)
+    deaths = stats.get("deaths", 0)
+    draw.text((150, 258), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
 
+    # Блок Level / прогресс
     draw.rounded_rectangle([330, 200, 870, 315], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     draw.text((360, 225), "Level", fill=(140, 145, 155), font=font_text)
-    draw.text((810, 225), "234", fill=(220, 100, 100), font=font_text)
+    draw.text((810, 225), "0", fill=(220, 100, 100), font=font_text)
     draw.rounded_rectangle([360, 270, 840, 280], radius=4, fill=(50, 40, 50))
-    draw.rounded_rectangle([360, 270, 600, 280], radius=4, fill=(230, 50, 110))
+    draw.rounded_rectangle([360, 270, 360, 280], radius=4, fill=(230, 50, 110))
 
+    # Маленькие плашки стат (все по нулям)
     metrics = [
-        ("Rating", str(stats.get("rating", "0.95")), "Stable", 30, 330),
-        ("AVG", str(stats.get("avg", "16")), "Strong", 319, 330),
-        ("Impact", str(stats.get("impact", "0.9")), "Low", 608, 330),
-        ("KPR", str(stats.get("kpr", "0.69")), "Stable", 30, 440),
-        ("Assists", str(stats.get("assists", "32")), "Low", 319, 440),
-        ("SVR", str(stats.get("svr", "0.24")), "Low", 608, 440),
+        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 330),
+        ("AVG", str(stats.get("avg", "0")), "None", 319, 330),
+        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 330),
+        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 440),
+        ("Assists", str(stats.get("assists", "0")), "None", 319, 440),
+        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 440),
     ]
 
     for label, val, sub, x, y in metrics:
@@ -101,27 +105,30 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     # --- 3. СЕКЦИЯ КАРТ (Map Statistic) ---
     draw.text((30, 560), "Map Statistic", fill=(180, 185, 195), font=font_header)
 
+    # Общий Винрейт (0%)
     draw.rounded_rectangle([30, 595, 310, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    wins = stats.get("wins", 3)
-    losses = stats.get("losses", 8)
-    wr_val = int((wins / (wins + losses) * 100)) if (wins + losses) > 0 else 0
+    wins = stats.get("wins", 0)
+    losses = stats.get("losses", 0)
+    wr_val = 0
     draw.text((60, 630), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
     draw.text((150, 625), "Win Rate", fill=(140, 145, 155), font=font_text)
     draw.text((150, 655), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
 
+    # Best Map (по нулям)
     draw.rounded_rectangle([330, 595, 870, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 620), "Rust", fill=(255, 255, 255), font=font_header)
-    draw.text((360, 650), "W = 1    L = 1", fill=(140, 145, 155), font=font_text)
-    draw.text((360, 675), "K/D = 1.44    W/R = 50%", fill=(255, 200, 100), font=font_text)
-    draw.text((810, 630), "BEST MAP", fill=(100, 105, 115), font=font_small)
+    draw.text((360, 620), "None", fill=(255, 255, 255), font=font_header)
+    draw.text((360, 650), "W = 0    L = 0", fill=(140, 145, 155), font=font_text)
+    draw.text((360, 675), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_text)
+    draw.text((800, 630), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
+    # Карточки мини-карт (все по нулям)
     mini_maps = [
-        ("Sandstone", "0", "0", "0", "0%", 30, 735),
-        ("Province", "1", "1", "0.72", "50%", 319, 735),
-        ("Prison", "0", "1", "0.0", "0%", 608, 735),
-        ("Hanami", "0", "2", "0.92", "0%", 30, 840),
-        ("Breeze", "0", "2", "1.08", "0%", 319, 840),
-        ("Dune", "1", "1", "0.83", "50%", 608, 840),
+        ("Sandstone", "0", "0", "0.00", "0%", 30, 735),
+        ("Province", "0", "0", "0.00", "0%", 319, 735),
+        ("Prison", "0", "0", "0.00", "0%", 608, 735),
+        ("Hanami", "0", "0", "0.00", "0%", 30, 840),
+        ("Breeze", "0", "0", "0.00", "0%", 319, 840),
+        ("Dune", "0", "0", "0.00", "0%", 608, 840),
     ]
 
     for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
@@ -278,18 +285,18 @@ class FaceitLikeBot(commands.Bot):
                 player_name = parts[1]
 
             stats = {
-                "total_matches": getattr(player, "matches_played", 12),
-                "wins": getattr(player, "wins", 3),
-                "losses": getattr(player, "losses", 8),
-                "kd": getattr(player, "kd", "0.9"),
-                "kills": 171,
-                "deaths": 190,
-                "rating": "0.95",
-                "avg": "16",
-                "impact": "0.9",
-                "kpr": "0.69",
-                "assists": "32",
-                "svr": "0.24"
+                "total_matches": 0,
+                "wins": 0,
+                "losses": 0,
+                "kd": "0.00",
+                "kills": 0,
+                "deaths": 0,
+                "rating": "0.00",
+                "avg": "0",
+                "impact": "0.00",
+                "kpr": "0.00",
+                "assists": 0,
+                "svr": "0.00"
             }
 
             card_buffer = generate_detailed_profile_card(player_name, player_id_val, league, stats)
