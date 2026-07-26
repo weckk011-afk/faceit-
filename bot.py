@@ -61,10 +61,8 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     
     # Квадрат для аватара
     draw.rounded_rectangle([45, 35, 135, 135], radius=8, fill=(50, 53, 63))
-    
-    draw.text((155, 38), "#1549", fill=(130, 135, 145), font=font_small)
     draw.text((155, 58), member_name, fill=(255, 255, 255), font=font_title)
-    draw.text((155, 112), f"ID: {player_id}", fill=(130, 135, 145), font=font_small)
+    draw.text((155, 112), f"ID: {player_id}", fill=(130, 135, 145), font=font_medium)
 
     draw.text((680, 65), league.upper(), fill=(255, 215, 0), font=font_big)
 
@@ -130,7 +128,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
         ("Hanami", "0", "0", "0.00", "0%", 30, 840),
         ("Breeze", "0", "0", "0.00", "0%", 319, 840),
         ("Dune", "0", "0", "0.00", "0%", 608, 840),
-        ("Zone 9", "0", "0", "0.00", "0%", 30, 955), # 7-я карта
+        ("Rust", "0", "0", "0.00", "0%", 30, 955), # 7-я карта
     ]
 
     for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
