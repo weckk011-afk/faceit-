@@ -107,7 +107,7 @@ class CloseTicketView(discord.ui.View):
             await interaction.channel.delete()
 
 
-# --- КНОПКА СОЗДАНИЯ ТИКЕТА ---
+# --- КНОПКА СОЗДАНИЯ ТИКЕТА С ДОБАВЛЕНИЕМ АДМИНОВ ---
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -115,21 +115,49 @@ class TicketView(discord.ui.View):
     @discord.ui.button(label="Создать", style=discord.ButtonStyle.success, emoji="🪪", custom_id="create_ticket_btn_persistent")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
+        guild = interaction.guild
+
         for thread in interaction.channel.threads:
             if f"-{user.id}" in thread.name:
-                await interaction.response.send_message("У вас уже есть тикет!", ephemeral=True)
+                await interaction.response.send_message("У вас уже есть открытый тикет!", ephemeral=True)
                 return
+
         try:
-            thread = await interaction.channel.create_thread(name=f"тикет-{user.name}-{user.id}", type=discord.ChannelType.private_thread, invitable=False)
+            thread = await interaction.channel.create_thread(
+                name=f"тикет-{user.name}-{user.id}", 
+                type=discord.ChannelType.private_thread, 
+                invitable=False
+            )
             await thread.add_user(user)
-            embed = discord.Embed(title="🎫 Тикет создан", description="Опишите вашу проблему.", color=discord.Color.green())
-            await thread.send(embed=embed, view=CloseTicketView())
-            await interaction.response.send_message(f"Тикет создан: {thread.mention}", ephemeral=True)
+
+            admin_mentions = []
+            for member in guild.members:
+                if not member.bot and member.guild_permissions.administrator:
+                    try:
+                        await thread.add_user(member)
+                        admin_mentions.append(member.mention)
+                    except Exception:
+                        pass
+
+            embed = discord.Embed(
+                title="🎫 Тикет создан",
+                description=(
+                    f"Привет, {user.mention}!\nОпишите вашу проблему или задайте вопрос.\n"
+                    "Персонал скоро ответит вам.\n\n"
+                    f"**Уведомлены администраторы:** {', '.join(admin_mentions) if admin_mentions else 'Не найдены'}"
+                ),
+                color=discord.Color.green(),
+            )
+            
+            await thread.send(content=" ".join(admin_mentions) if admin_mentions else "", embed=embed, view=CloseTicketView())
+            await interaction.response.send_message(f"Ваш тикет успешно создан: {thread.mention}", ephemeral=True)
+
         except Exception as e:
-            await interaction.response.send_message(f"Ошибка: {e}", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"Не удалось создать тикет: {e}", ephemeral=True)
 
 
-# --- ПАНЕЛЬ МАТЧА (Кнопка Хоста и Отправки результатов) ---
+# --- ПАНЕЛЬ МАТЧА ---
 class MatchControlView(discord.ui.View):
     def __init__(self, match_id: int, host_user_id: int):
         super().__init__(timeout=None)
@@ -151,7 +179,6 @@ class MatchControlView(discord.ui.View):
     @discord.ui.button(label="Отправить результаты", style=discord.ButtonStyle.primary, emoji="📋", custom_id="send_results_btn")
     async def send_results(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
-        guild = interaction.guild
         for thread in interaction.channel.threads:
             if f"матч-{self.match_id}" in thread.name:
                 await interaction.response.send_message(f"Ветка уже открыта: {thread.mention}", ephemeral=True)
@@ -172,14 +199,21 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
     game_name = discord.ui.TextInput(label="Игровой никнейм", placeholder="Ник в игре...", required=True, max_length=50)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         user = interaction.user
         p_id = self.player_id.value
         nickname = self.game_name.value
+
         try:
             interaction.client.db.add_player(guild_id=interaction.guild_id, user_id=user.id, player_id=p_id, name=nickname)
         except TypeError:
             interaction.client.db.add_player(guild_id=interaction.guild_id, user_id=user.id, name=f"{p_id} | {nickname}")
-        await interaction.response.send_message(f"✅ Регистрация успешна! ID: **{p_id}**, Ник: **{nickname}**", ephemeral=True)
+
+        await interaction.followup.send(
+            f"✅ Регистрация успешна!\n🆔 ID: **{p_id}**\n🎮 Nickname: **{nickname}**\n*(Ваши текущие роли на сервере сохранены)*", 
+            ephemeral=True
+        )
 
 
 class RegistrationView(discord.ui.View):
@@ -250,6 +284,112 @@ class FaceitLikeBot(commands.Bot):
             card_buffer = generate_detailed_profile_card(player_name, player_id_val, league, stats)
             file = discord.File(fp=card_buffer, filename="profile.png")
             await interaction.response.send_message(file=file, ephemeral=True)
+
+        # --- АДМИН КОМАНДЫ (BAN, MUTE, WARN, ROLE) ---
+
+        @self.tree.command(name="ban", description="Заблокировать участника на сервере")
+        @app_commands.checks.has_permissions(ban_members=True)
+        @app_commands.describe(member="Участник", reason="Причина бана")
+        async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "Не указана"):
+            await member.ban(reason=reason)
+            await interaction.response.send_message(f"✅ Пользователь {member.mention} заблокирован. Причина: {reason}", ephemeral=True)
+
+        @self.tree.command(name="unban", description="Разблокировать пользователя по ID")
+        @app_commands.checks.has_permissions(ban_members=True)
+        @app_commands.describe(user_id="ID пользователя для разблокировки")
+        async def unban(interaction: discord.Interaction, user_id: str):
+            try:
+                user = await self.fetch_user(int(user_id))
+                await interaction.guild.unban(user)
+                await interaction.response.send_message(f"✅ Пользователь {user.name} успешно разблокирован.", ephemeral=True)
+            except Exception as e:
+                await interaction.response.send_message(f"❌ Ошибка разблокировки: {e}", ephemeral=True)
+
+        @self.tree.command(name="mute", description="Замутить участника (выдать таймаут)")
+        @app_commands.checks.has_permissions(moderate_members=True)
+        @app_commands.describe(member="Участник", minutes="Время мута в минутах", reason="Причина")
+        async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "Не указана"):
+            duration = discord.utils.utcnow() + discord.timedelta(minutes=minutes)
+            await member.timeout(duration, reason=reason)
+            await interaction.response.send_message(f"✅ Пользователь {member.mention} заглушен на {minutes} мин. Причина: {reason}", ephemeral=True)
+
+        @self.tree.command(name="unmute", description="Снять мут с участника")
+        @app_commands.checks.has_permissions(moderate_members=True)
+        @app_commands.describe(member="Участник")
+        async def unmute(interaction: discord.Interaction, member: discord.Member):
+            await member.timeout(None)
+            await interaction.response.send_message(f"✅ С пользователя {member.mention} снят мут.", ephemeral=True)
+
+        @self.tree.command(name="warn", description="Выдать предупреждение (warn 1/3, 2/3 или 3/3)")
+        @app_commands.checks.has_permissions(manage_roles=True)
+        @app_commands.choices(warn_level=[
+            app_commands.Choice(name="Warn 1/3", value="1"),
+            app_commands.Choice(name="Warn 2/3", value="2"),
+            app_commands.Choice(name="Warn 3/3", value="3"),
+        ])
+        @app_commands.describe(member="Участник", warn_level="Уровень предупреждения", reason="Причина")
+        async def warn(interaction: discord.Interaction, member: discord.Member, warn_level: str, reason: str = "Не указана"):
+            guild = interaction.guild
+            # Ищем роли на сервере по имени
+            role_name = f"warn {warn_level}/3"
+            role = discord.utils.get(guild.roles, name=role_name)
+
+            if not role:
+                # Если роль не создана автоматически, пытаемся создать её
+                try:
+                    role = await guild.create_role(name=role_name, reason="Автоматическое создание роли варна ботом")
+                except Exception:
+                    await interaction.response.send_message(f"❌ Не удалось найти или создать роль `{role_name}` на сервере!", ephemeral=True)
+                    return
+
+            await member.add_roles(role, reason=reason)
+            await interaction.response.send_message(f"⚠️ Игроку {member.mention} выдано предупреждение **{warn_level}/3** (роль `{role_name}`). Причина: {reason}", ephemeral=True)
+
+        @self.tree.command(name="unwarn", description="Снять предупреждение с участника")
+        @app_commands.checks.has_permissions(manage_roles=True)
+        @app_commands.choices(warn_level=[
+            app_commands.Choice(name="Warn 1/3", value="1"),
+            app_commands.Choice(name="Warn 2/3", value="2"),
+            app_commands.Choice(name="Warn 3/3", value="3"),
+        ])
+        @app_commands.describe(member="Участник", warn_level="Уровень предупреждения для снятия")
+        async def unwarn(interaction: discord.Interaction, member: discord.Member, warn_level: str):
+            guild = interaction.guild
+            role_name = f"warn {warn_level}/3"
+            role = discord.utils.get(guild.roles, name=role_name)
+
+            if role and role in member.roles:
+                await member.remove_roles(role)
+                await interaction.response.send_message(f"✅ С игрока {member.mention} снята роль предупреждения `{role_name}`.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ У игрока нет роли `{role_name}`.", ephemeral=True)
+
+        @self.tree.command(name="role", description="Выдать или забрать роль у участника")
+        @app_commands.checks.has_permissions(manage_roles=True)
+        @app_commands.choices(action=[
+            app_commands.Choice(name="Добавить (add)", value="add"),
+            app_commands.Choice(name="Убрать (remove)", value="remove"),
+        ])
+        @app_commands.describe(action="Действие", member="Участник", role="Роль")
+        async def role_cmd(interaction: discord.Interaction, action: str, member: discord.Member, role: discord.Role):
+            try:
+                if action == "add":
+                    await member.add_roles(role)
+                    await interaction.response.send_message(f"✅ Участнику {member.mention} успешно добавлена роль **{role.name}**.", ephemeral=True)
+                elif action == "remove":
+                    await member.remove_roles(role)
+                    await interaction.response.send_message(f"✅ У участника {member.mention} успешно убрана роль **{role.name}**.", ephemeral=True)
+            except Exception as e:
+                await interaction.response.send_message(f"❌ Ошибка при изменении роли: {e}", ephemeral=True)
+
+        # Обработчик ошибок для проверки прав администратора/модератора
+        @self.tree.error
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+            if isinstance(error, app_commands.MissingPermissions):
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ У вас недостаточно прав для выполнения этой команды!", ephemeral=True)
+            else:
+                logging.error(f"Ошибка в слеш-команде: {error}")
 
         synced = await self.tree.sync()
         logging.info(f"Синхронизировано {len(synced)} команд.")
