@@ -2,6 +2,8 @@ import asyncio
 import io
 import logging
 import os
+import urllib.request
+import aiohttp
 
 import discord
 from discord import app_commands
@@ -20,7 +22,6 @@ INTENTS.message_content = True
 
 
 def get_font(size: int):
-    # Расширенный поиск шрифтов
     font_paths = [
         "arial.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
@@ -40,12 +41,39 @@ def get_font(size: int):
     return ImageFont.load_default()
 
 
-def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict) -> io.BytesIO:
+def calculate_level_and_progress(league: str, elo: int):
+    """
+    Вычисляет текущий уровень, границы ELO и процент прогресса на основе лиги.
+    """
+    league = league.lower()
+    
+    if league == "pro":
+        thresholds = [0, 399, 699, 999, 1299, 1599, 1899, 2199, 2599, 2799]
+    else: # Для prospect и division
+        thresholds = [0, 200, 400, 600, 900, 1100, 1400, 1600, 1800, 2000]
+
+    for i in range(9, -1, -1):
+        if elo >= thresholds[i]:
+            level = i + 1
+            min_elo = thresholds[i]
+            
+            if level < 10:
+                max_elo = thresholds[i+1]
+                progress_percent = (elo - min_elo) / (max_elo - min_elo)
+            else:
+                max_elo = min_elo
+                progress_percent = 1.0
+            
+            return level, min_elo, max_elo, progress_percent
+            
+    return 1, 0, thresholds[1], 0.0
+
+
+def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict, league: str) -> io.BytesIO:
     width, height = 900, 1180
     image = Image.new("RGB", (width, height), color=(15, 16, 20))
     draw = ImageDraw.Draw(image)
 
-    # Шрифты (никнейм теперь 49)
     font_title = get_font(49)
     font_id = get_font(20)
     font_header = get_font(16)
@@ -56,38 +84,78 @@ def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict
 
     # --- 1. ШАПКА ПРОФИЛЯ ---
     draw.rounded_rectangle([30, 20, 870, 160], radius=12, fill=(24, 26, 32), outline=(40, 43, 52), width=1)
-    
-    # Квадрат для аватара
     draw.rounded_rectangle([45, 35, 145, 135], radius=8, fill=(50, 53, 63))
-    
-    # Никнейм (размер 49)
     draw.text((170, 45), member_name, fill=(255, 255, 255), font=font_title)
-    
-    # ID из базы данных
     draw.text((175, 110), f"ID: {player_id}", fill=(130, 135, 145), font=font_id)
 
-    # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
+    # --- 2. СЕКЦИЯ СТАТИСТИКИ ---
     draw.text((30, 185), "Statistic", fill=(180, 185, 195), font=font_header)
     
-    # Блок K/D круговой
+    # Блок K/D
     draw.rounded_rectangle([30, 215, 310, 330], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     kd_val = str(stats.get("kd", "0.00"))
     draw.text((50, 248), kd_val, fill=(255, 255, 255), font=font_big)
     draw.text((150, 246), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
-    kills = stats.get("kills", 0)
-    deaths = stats.get("deaths", 0)
-    draw.text((150, 272), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
+    draw.text((150, 272), f"K = {stats.get('kills', 0)}    D = {stats.get('deaths', 0)}", fill=(180, 185, 195), font=font_small)
 
-    # Блок Level / прогресс
+    # === БЛОК УРОВНЯ И ПРОГРЕССА С ИКОНКАМИ ИЗ ДИСКОРДА ===
     draw.rounded_rectangle([330, 215, 870, 330], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 240), "Level", fill=(140, 145, 155), font=font_text)
-    draw.text((810, 235), "0", fill=(220, 100, 100), font=font_num)
-    draw.rounded_rectangle([360, 287, 840, 297], radius=4, fill=(50, 40, 50))
-    draw.rounded_rectangle([360, 287, 360, 297], radius=4, fill=(230, 50, 110))
+    
+    try:
+        elo_rating = int(float(stats.get("rating", 299)))
+    except ValueError:
+        elo_rating = 299
+        
+    level, min_elo, max_elo, progress = calculate_level_and_progress(league, elo_rating)
+
+    # Прямые ссылки на твои иконки уровней (1-10) из Discord
+    level_urls = {
+        1: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910572881776783/50CE3173-1CC1-4A3B-B1BE-1FCBE436EC0A.jpg",
+        2: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910759322652814/3DB57905-813B-4A40-8C50-94016ADC83C2.jpg",
+        3: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910862238289980/5EEC1B6E-A393-423D-A1BE-B7710252B2C2.jpg",
+        4: "https://cdn.discordapp.com/attachments/1530910275492909087/1530910943838601216/CEB7DD75-E8AB-465A-B5FB-FEEAC80D1F18.jpg",
+        5: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911021634687128/CC8691F9-97C5-4D69-B0C3-FE500429D323.jpg",
+        6: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911093994815678/C40495CE-C26D-4DE5-8C8F-160055B8C198.jpg",
+        7: "https://cdn.discordapp.com/attachments/1530910275492909087/1530912920102502481/27599D79-C9A5-4585-8028-AFA637B086DB.jpg",
+        8: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911248940531733/719DDCA1-D4E9-4C21-B875-A9A809393715.jpg",
+        9: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911335011975259/9C4C84D4-B0FD-4C7A-8153-990D1483A2CC.jpg",
+        10: "https://cdn.discordapp.com/attachments/1530910275492909087/1530911391006068889/2E34E6F7-281B-402C-86BF-253F1B698D46.jpg"
+    }
+
+    try:
+        url = level_urls.get(level, level_urls[1])
+        with urllib.request.urlopen(url) as response:
+            icon_data = response.read()
+            
+        icon = Image.open(io.BytesIO(icon_data)).convert("RGBA")
+        icon = icon.resize((80, 80))
+        image.paste(icon, (350, 235), icon)
+    except Exception as e:
+        logging.warning(f"Не удалось подгрузить иконку уровня: {e}")
+        draw.text((360, 250), f"Lvl {level}", fill=(255, 200, 100), font=font_big)
+
+    draw.text((450, 235), f"Level {level}", fill=(255, 255, 255), font=font_text)
+    draw.text((450, 260), f"{elo_rating} ELO", fill=(140, 145, 155), font=font_small)
+    
+    if level < 10:
+        draw.text((790, 260), f"{max_elo} ELO", fill=(140, 145, 155), font=font_small)
+    else:
+        draw.text((790, 260), f"MAX", fill=(220, 100, 100), font=font_small)
+
+    bar_x1, bar_y1 = 450, 287
+    bar_x2, bar_y2 = 840, 297
+    
+    draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=4, fill=(50, 40, 50))
+    
+    fill_width = int((bar_x2 - bar_x1) * progress)
+    if fill_width > 0:
+        fill_width = max(fill_width, 8) 
+        draw.rounded_rectangle([bar_x1, bar_y1, bar_x1 + fill_width, bar_y2], radius=4, fill=(230, 50, 110))
+    # ===================================================================
 
     # Плашки стат
     metrics = [
-        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 345),
+        ("Rating", str(stats.get("rating", "299")), "None", 30, 345),
         ("AVG", str(stats.get("avg", "0")), "None", 319, 345),
         ("Impact", str(stats.get("impact", "0.00")), "None", 608, 345),
         ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 455),
@@ -101,27 +169,20 @@ def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict
         draw.text((x + 18, y + 36), val, fill=(255, 255, 255), font=font_num)
         draw.text((x + 18, y + 68), sub, fill=(110, 115, 125), font=font_small)
 
-    # --- 3. СЕКЦИЯ КАРТ (Map Statistic) ---
+    # --- 3. СЕКЦИЯ КАРТ ---
     draw.text((30, 570), "Map Statistic", fill=(180, 185, 195), font=font_header)
 
-    # Общий Винрейт
     draw.rounded_rectangle([30, 600, 310, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    wins = stats.get("wins", 0)
-    losses = stats.get("losses", 0)
-    wr_val = 0
-    draw.text((50, 633), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
+    draw.text((50, 633), "0%", fill=(255, 255, 255), font=font_big)
     draw.text((150, 627), "Win Rate", fill=(140, 145, 155), font=font_small)
-    draw.text((150, 653), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
+    draw.text((150, 653), f"W = {stats.get('wins', 0)}    L = {stats.get('losses', 0)}", fill=(180, 185, 195), font=font_small)
 
-    # Best Map
     draw.rounded_rectangle([330, 600, 870, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     draw.text((360, 623), "None", fill=(255, 255, 255), font=font_num)
     draw.text((360, 653), "W = 0    L = 0", fill=(140, 145, 155), font=font_small)
     draw.text((360, 677), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
     draw.text((790, 627), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
-    # ВСЕ 7 КАРТ (Идеальное распределение без огрызков снизу)
-    # Ряд 1 и 2: Делаем по 2 широких блока (ширина 405)
     wide_maps = [
         ("Sandstone", "0", "0", "0.00", "0%", 30, 735),
         ("Province", "0", "0", "0.00", "0%", 465, 735),
@@ -136,7 +197,6 @@ def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict
         draw.text((x + 18, y + 65), f"K/D = {m_kd}", fill=(210, 190, 110), font=font_small)
         draw.text((x + 220, y + 65), f"W/R = {m_wr}", fill=(210, 190, 110), font=font_small)
 
-    # Ряд 3: Делаем 3 стандартных блока (ширина 262)
     standard_maps = [
         ("Breeze", "0", "0", "0.00", "0%", 30, 965),
         ("Dune", "0", "0", "0.00", "0%", 319, 965),
@@ -270,7 +330,7 @@ class FaceitLikeBot(commands.Bot):
             await interaction.channel.send(embed=embed, view=RegistrationView())
             await interaction.response.send_message("Панель регистрации опубликована!", ephemeral=True)
 
-        # Команда profile со строчными названиями лиг
+        # Команда profile с обязательным выбором лиги и дефолтным эло 299
         @self.tree.command(name="profile", description="Показать профиль и карточку статистики")
         @app_commands.describe(league="Выберите лигу (обязательно)", user="Чей профиль показать")
         @app_commands.choices(league=[
@@ -290,19 +350,17 @@ class FaceitLikeBot(commands.Bot):
             player_name = target.display_name
             player_id_val = "Не указан"
 
-            # Умный поиск ID и Никнейма (поймет любой формат базы данных)
             if hasattr(player, "player_id"):
                 player_id_val = str(player.player_id)
                 player_name = str(getattr(player, "name", target.display_name))
             elif isinstance(player, tuple):
                 if len(player) >= 4:
-                    player_id_val = str(player[2]) # ID обычно здесь
-                    player_name = str(player[3])   # Имя обычно здесь
+                    player_id_val = str(player[2])
+                    player_name = str(player[3])
                 elif len(player) == 3:
                     player_id_val = str(player[1])
                     player_name = str(player[2])
 
-            # Резервный вариант, если все сохранено в строку
             if " | " in player_name and (player_id_val == "Не указан" or not player_id_val):
                 parts = player_name.split(" | ", 1)
                 player_id_val = parts[0]
@@ -310,22 +368,68 @@ class FaceitLikeBot(commands.Bot):
 
             stats = {
                 "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
-                "kills": 0, "deaths": 0, "rating": "0.00", "avg": "0",
+                "kills": 0, "deaths": 0, "rating": "299", "avg": "0",
                 "impact": "0.00", "kpr": "0.00", "assists": 0, "svr": "0.00"
             }
 
             try:
-                # В генератор передаем чистый player_name, без приписок лиги в скобках
-                card_buffer = generate_detailed_profile_card(player_name, player_id_val, stats)
+                card_buffer = generate_detailed_profile_card(player_name, player_id_val, stats, league.value)
                 file = discord.File(fp=card_buffer, filename="profile.png")
                 
-                # Добавляем красивый текстовый вывод лиги над картинкой, раз её нет внутри
                 msg_content = f"🏆 **Текущая лига:** {league.name.upper()}"
                 
                 await interaction.followup.send(content=msg_content, file=file, ephemeral=True)
             except Exception as e:
                 logging.error(f"Ошибка при создании профиля: {e}")
                 await interaction.followup.send("❌ Произошла ошибка при генерации карточки профиля.", ephemeral=True)
+
+        # Команда /ranks с иерархией prospect -> division -> pro
+        @self.tree.command(name="ranks", description="Показать список рангов и систему ELO")
+        async def ranks(interaction: discord.Interaction):
+            description = (
+                "**@prospect league** (Низшая)\n"
+                "1️⃣ - [0-199]\n"
+                "2️⃣ - [200-399]\n"
+                "3️⃣ - [400-599]\n"
+                "4️⃣ - [600-899]\n"
+                "5️⃣ - [900-1099]\n"
+                "6️⃣ - [1100-1399]\n"
+                "7️⃣ - [1400-1599]\n"
+                "8️⃣ - [1600-1799]\n"
+                "9️⃣ - [1800-1999]\n"
+                "🔟 - [2000+]\n\n"
+                
+                "**@division league** (Средняя)\n"
+                "1️⃣ - [0-199]\n"
+                "2️⃣ - [200-399]\n"
+                "3️⃣ - [400-599]\n"
+                "4️⃣ - [600-899]\n"
+                "5️⃣ - [900-1099]\n"
+                "6️⃣ - [1100-1399]\n"
+                "7️⃣ - [1400-1599]\n"
+                "8️⃣ - [1600-1799]\n"
+                "9️⃣ - [1800-1999]\n"
+                "🔟 - [2000+]\n\n"
+                
+                "**@pro league** (Высшая)\n"
+                "1️⃣ - [0-398]\n"
+                "2️⃣ - [399-698]\n"
+                "3️⃣ - [699-998]\n"
+                "4️⃣ - [999-1298]\n"
+                "5️⃣ - [1299-1598]\n"
+                "6️⃣ - [1599-1898]\n"
+                "7️⃣ - [1899-2198]\n"
+                "8️⃣ - [2199-2598]\n"
+                "9️⃣ - [2599-2798]\n"
+                "🔟 - [2799+]"
+            )
+            
+            embed = discord.Embed(
+                title="Список рангов",
+                description=description,
+                color=discord.Color.dark_theme()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
         # --- АДМИН КОМАНДЫ ---
         @self.tree.command(name="ban", description="Заблокировать участника на сервере")
