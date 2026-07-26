@@ -20,7 +20,6 @@ INTENTS.message_content = True
 
 
 def get_font(size: int):
-    # Сначала ищем шрифт прямо в папке проекта (положи туда arial.ttf)
     local_font = "arial.ttf"
     if os.path.exists(local_font):
         try:
@@ -28,7 +27,6 @@ def get_font(size: int):
         except Exception:
             pass
 
-    # Резервные пути в системе Linux
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
@@ -46,96 +44,97 @@ def get_font(size: int):
 
 
 def generate_detailed_profile_card(member_name: str, player_id: str, league: str, stats: dict) -> io.BytesIO:
-    width, height = 900, 950
+    width, height = 900, 860
     image = Image.new("RGB", (width, height), color=(18, 19, 23))
     draw = ImageDraw.Draw(image)
 
-    # Увеличенные размеры шрифтов
-    font_title = get_font(26)
-    font_header = get_font(18)
-    font_text = get_font(15)
-    font_small = get_font(13)
-    font_big = get_font(34)
+    # Аккуратные, улучшенные размеры шрифтов
+    font_title = kwargs_title = get_font(22)
+    font_header = get_font(15)
+    font_text = get_font(14)
+    font_small = get_font(12)
+    font_big = get_font(26)
+    font_num = get_font(20)
 
     # --- 1. ШАПКА ПРОФИЛЯ ---
-    draw.rounded_rectangle([30, 25, 870, 140], radius=12, fill=(28, 30, 36), outline=(45, 48, 56), width=1)
-    draw.rounded_rectangle([50, 45, 120, 115], radius=8, fill=(50, 53, 63))
+    draw.rounded_rectangle([30, 20, 870, 130], radius=12, fill=(28, 30, 36), outline=(45, 48, 56), width=1)
+    draw.rounded_rectangle([45, 38, 115, 112], radius=8, fill=(50, 53, 63))
     
-    draw.text((145, 50), "#1549", fill=(130, 135, 145), font=font_text)
-    draw.text((145, 72), member_name, fill=(255, 255, 255), font=font_title)
-    draw.text((145, 106), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
+    draw.text((135, 42), "#1549", fill=(130, 135, 145), font=font_small)
+    draw.text((135, 62), member_name, fill=(255, 255, 255), font=font_title)
+    draw.text((135, 92), f"ID: {player_id}", fill=(130, 135, 145), font=font_small)
 
-    draw.text((700, 60), league.upper(), fill=(255, 215, 0), font=font_header)
+    draw.text((710, 55), league.upper(), fill=(255, 215, 0), font=font_title)
 
     # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
-    draw.text((30, 170), "Statistic", fill=(180, 185, 195), font=font_header)
+    draw.text((30, 150), "Statistic", fill=(180, 185, 195), font=font_header)
     
-    # Блок K/D круговой (по нулям)
-    draw.rounded_rectangle([30, 200, 310, 315], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    # Блок K/D круговой
+    draw.rounded_rectangle([30, 180, 310, 285], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     kd_val = str(stats.get("kd", "0.00"))
-    draw.text((60, 235), kd_val, fill=(255, 255, 255), font=font_big)
-    draw.text((150, 230), "Kill/Deaths", fill=(140, 145, 155), font=font_text)
+    draw.text((50, 215), kd_val, fill=(255, 255, 255), font=font_big)
+    draw.text((140, 208), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
     kills = stats.get("kills", 0)
     deaths = stats.get("deaths", 0)
-    draw.text((150, 258), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
+    draw.text((140, 232), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
 
     # Блок Level / прогресс
-    draw.rounded_rectangle([330, 200, 870, 315], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 225), "Level", fill=(140, 145, 155), font=font_text)
-    draw.text((810, 225), "0", fill=(220, 100, 100), font=font_text)
-    draw.rounded_rectangle([360, 270, 840, 280], radius=4, fill=(50, 40, 50))
-    draw.rounded_rectangle([360, 270, 360, 280], radius=4, fill=(230, 50, 110))
+    draw.rounded_rectangle([330, 180, 870, 285], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((355, 205), "Level", fill=(140, 145, 155), font=font_small)
+    draw.text((815, 202), "0", fill=(220, 100, 100), font=font_num)
+    draw.rounded_rectangle([355, 248, 845, 256], radius=4, fill=(50, 40, 50))
+    draw.rounded_rectangle([355, 248, 355, 256], radius=4, fill=(230, 50, 110))
 
-    # Маленькие плашки стат (все по нулям)
+    # Маленькие плашки стат
     metrics = [
-        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 330),
-        ("AVG", str(stats.get("avg", "0")), "None", 319, 330),
-        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 330),
-        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 440),
-        ("Assists", str(stats.get("assists", "0")), "None", 319, 440),
-        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 440),
+        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 300),
+        ("AVG", str(stats.get("avg", "0")), "None", 319, 300),
+        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 300),
+        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 405),
+        ("Assists", str(stats.get("assists", "0")), "None", 319, 405),
+        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 405),
     ]
 
     for label, val, sub, x, y in metrics:
-        draw.rounded_rectangle([x, y, x + 262, y + 95], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-        draw.text((x + 20, y + 18), label, fill=(140, 145, 155), font=font_text)
-        draw.text((x + 20, y + 42), val, fill=(255, 255, 255), font=font_header)
-        draw.text((x + 20, y + 70), sub, fill=(110, 115, 125), font=font_small)
+        draw.rounded_rectangle([x, y, x + 262, y + 90], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+        draw.text((x + 18, y + 14), label, fill=(140, 145, 155), font=font_small)
+        draw.text((x + 18, y + 36), val, fill=(255, 255, 255), font=font_num)
+        draw.text((x + 18, y + 62), sub, fill=(110, 115, 125), font=font_small)
 
     # --- 3. СЕКЦИЯ КАРТ (Map Statistic) ---
-    draw.text((30, 560), "Map Statistic", fill=(180, 185, 195), font=font_header)
+    draw.text((30, 515), "Map Statistic", fill=(180, 185, 195), font=font_header)
 
-    # Общий Винрейт (0%)
-    draw.rounded_rectangle([30, 595, 310, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    # Общий Винрейт
+    draw.rounded_rectangle([30, 545, 310, 650], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     wins = stats.get("wins", 0)
     losses = stats.get("losses", 0)
     wr_val = 0
-    draw.text((60, 630), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
-    draw.text((150, 625), "Win Rate", fill=(140, 145, 155), font=font_text)
-    draw.text((150, 655), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
+    draw.text((50, 580), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
+    draw.text((140, 572), "Win Rate", fill=(140, 145, 155), font=font_small)
+    draw.text((140, 596), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
 
-    # Best Map (по нулям)
-    draw.rounded_rectangle([330, 595, 870, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 620), "None", fill=(255, 255, 255), font=font_header)
-    draw.text((360, 650), "W = 0    L = 0", fill=(140, 145, 155), font=font_text)
-    draw.text((360, 675), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_text)
-    draw.text((800, 630), "BEST MAP", fill=(100, 105, 115), font=font_small)
+    # Best Map
+    draw.rounded_rectangle([330, 545, 870, 650], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((355, 568), "None", fill=(255, 255, 255), font=font_num)
+    draw.text((355, 596), "W = 0    L = 0", fill=(140, 145, 155), font=font_small)
+    draw.text((355, 618), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
+    draw.text((800, 572), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
-    # Карточки мини-карт (все по нулям)
+    # Карточки мини-карт
     mini_maps = [
-        ("Sandstone", "0", "0", "0.00", "0%", 30, 735),
-        ("Province", "0", "0", "0.00", "0%", 319, 735),
-        ("Prison", "0", "0", "0.00", "0%", 608, 735),
-        ("Hanami", "0", "0", "0.00", "0%", 30, 840),
-        ("Breeze", "0", "0", "0.00", "0%", 319, 840),
-        ("Dune", "0", "0", "0.00", "0%", 608, 840),
+        ("Sandstone", "0", "0", "0.00", "0%", 30, 665),
+        ("Province", "0", "0", "0.00", "0%", 319, 665),
+        ("Prison", "0", "0", "0.00", "0%", 608, 665),
+        ("Hanami", "0", "0", "0.00", "0%", 30, 760),
+        ("Breeze", "0", "0", "0.00", "0%", 319, 760),
+        ("Dune", "0", "0", "0.00", "0%", 608, 760),
     ]
 
     for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
-        draw.rounded_rectangle([x, y, x + 262, y + 95], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-        draw.text((x + 20, y + 18), m_name, fill=(255, 255, 255), font=font_text)
-        draw.text((x + 20, y + 42), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
-        draw.text((x + 20, y + 68), f"K/D = {m_kd}   W/R = {m_wr}", fill=(210, 190, 110), font=font_small)
+        draw.rounded_rectangle([x, y, x + 262, y + 85], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+        draw.text((x + 18, y + 14), m_name, fill=(255, 255, 255), font=font_text)
+        draw.text((x + 18, y + 36), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
+        draw.text((x + 18, y + 58), f"K/D = {m_kd}   W/R = {m_wr}", fill=(210, 190, 110), font=font_small)
 
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
