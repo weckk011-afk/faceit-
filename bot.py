@@ -49,7 +49,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     draw = ImageDraw.Draw(image)
 
     # Крупные шрифты для никнейма, цифр и карточек
-    font_title = get_font(30)   # Большой ник (~1/4 ширины блока)
+    font_title = get_font(30)   
     font_header = get_font(16)
     font_text = get_font(15)
     font_small = get_font(13)
@@ -268,10 +268,13 @@ class FaceitLikeBot(commands.Bot):
         ])
         @app_commands.describe(league="Выберите лигу", user="Чей профиль показать")
         async def profile(interaction: discord.Interaction, league: str, user: discord.Member = None):
+            # Защита от ошибки "Приложение не отвечает" (дает до 15 минут на генерацию)
+            await interaction.response.defer(ephemeral=True)
+
             target = user or interaction.user
             player = self.db.get_player(interaction.guild_id, target.id)
             if player is None:
-                await interaction.response.send_message(f"{target.display_name} не зарегистрирован.", ephemeral=True)
+                await interaction.followup.send(f"{target.display_name} не зарегистрирован.", ephemeral=True)
                 return
 
             player_name = getattr(player, "name", target.display_name)
@@ -296,9 +299,13 @@ class FaceitLikeBot(commands.Bot):
                 "svr": "0.00"
             }
 
-            card_buffer = generate_detailed_profile_card(player_name, player_id_val, league, stats)
-            file = discord.File(fp=card_buffer, filename="profile.png")
-            await interaction.response.send_message(file=file, ephemeral=True)
+            try:
+                card_buffer = generate_detailed_profile_card(player_name, player_id_val, league, stats)
+                file = discord.File(fp=card_buffer, filename="profile.png")
+                await interaction.followup.send(file=file, ephemeral=True)
+            except Exception as e:
+                logging.error(f"Ошибка при создании профиля: {e}")
+                await interaction.followup.send("❌ Произошла ошибка при генерации карточки профиля.", ephemeral=True)
 
         # --- АДМИН КОМАНДЫ ---
 
