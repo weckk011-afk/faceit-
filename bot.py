@@ -20,14 +20,11 @@ INTENTS.message_content = True
 
 
 def get_font(size: int):
-    local_font = "arial.ttf"
-    if os.path.exists(local_font):
-        try:
-            return ImageFont.truetype(local_font, size)
-        except Exception:
-            pass
-
+    # Расширенный поиск шрифтов (ищет и на Windows, и на Linux)
     font_paths = [
+        "arial.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\tahoma.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -39,7 +36,7 @@ def get_font(size: int):
             except Exception:
                 continue
                 
-    logging.warning("Внимание: Не найден шрифт с поддержкой кириллицы! Положите файл arial.ttf в папку бота.")
+    logging.warning("⚠️ ВНИМАНИЕ: Шрифт не найден! Положите файл arial.ttf в папку с ботом, иначе текст будет мелким и с квадратами.")
     return ImageFont.load_default()
 
 
@@ -48,8 +45,9 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     image = Image.new("RGB", (width, height), color=(15, 16, 20))
     draw = ImageDraw.Draw(image)
 
-    # Шрифты
-    font_title = get_font(60)   # Огромный никнейм
+    # Шрифты с учетом увеличенного никнейма
+    font_title = get_font(90)   # ОГРОМНЫЙ никнейм (в 3 раза больше)
+    font_id = get_font(20)      # Шрифт для ID
     font_header = get_font(16)
     font_text = get_font(15)
     font_small = get_font(12)
@@ -57,44 +55,46 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     font_num = get_font(24)
 
     # --- 1. ШАПКА ПРОФИЛЯ ---
-    draw.rounded_rectangle([30, 20, 870, 150], radius=12, fill=(24, 26, 32), outline=(40, 43, 52), width=1)
+    draw.rounded_rectangle([30, 20, 870, 160], radius=12, fill=(24, 26, 32), outline=(40, 43, 52), width=1)
     
     # Квадрат для аватара
-    draw.rounded_rectangle([45, 35, 135, 135], radius=8, fill=(50, 53, 63))
+    draw.rounded_rectangle([45, 35, 145, 135], radius=8, fill=(50, 53, 63))
     
-    # Никнейм и ID (без лишних символов)
-    draw.text((155, 45), member_name, fill=(255, 255, 255), font=font_title)
-    draw.text((155, 115), f"ID: {player_id}", fill=(130, 135, 145), font=font_text)
+    # Никнейм (опущен ниже и увеличен)
+    draw.text((170, 30), member_name, fill=(255, 255, 255), font=font_title)
+    
+    # ID из базы данных (под никнеймом)
+    draw.text((175, 125), f"ID: {player_id}", fill=(130, 135, 145), font=font_id)
 
     draw.text((680, 65), league.upper(), fill=(255, 215, 0), font=font_big)
 
     # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
-    draw.text((30, 175), "Statistic", fill=(180, 185, 195), font=font_header)
+    draw.text((30, 185), "Statistic", fill=(180, 185, 195), font=font_header)
     
     # Блок K/D круговой
-    draw.rounded_rectangle([30, 205, 310, 320], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.rounded_rectangle([30, 215, 310, 330], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     kd_val = str(stats.get("kd", "0.00"))
-    draw.text((50, 238), kd_val, fill=(255, 255, 255), font=font_big)
-    draw.text((150, 236), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
+    draw.text((50, 248), kd_val, fill=(255, 255, 255), font=font_big)
+    draw.text((150, 246), "Kill/Deaths", fill=(140, 145, 155), font=font_small)
     kills = stats.get("kills", 0)
     deaths = stats.get("deaths", 0)
-    draw.text((150, 262), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
+    draw.text((150, 272), f"K = {kills}    D = {deaths}", fill=(180, 185, 195), font=font_small)
 
     # Блок Level / прогресс
-    draw.rounded_rectangle([330, 205, 870, 320], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 230), "Level", fill=(140, 145, 155), font=font_text)
-    draw.text((810, 225), "0", fill=(220, 100, 100), font=font_num)
-    draw.rounded_rectangle([360, 277, 840, 287], radius=4, fill=(50, 40, 50))
-    draw.rounded_rectangle([360, 277, 360, 287], radius=4, fill=(230, 50, 110))
+    draw.rounded_rectangle([330, 215, 870, 330], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((360, 240), "Level", fill=(140, 145, 155), font=font_text)
+    draw.text((810, 235), "0", fill=(220, 100, 100), font=font_num)
+    draw.rounded_rectangle([360, 287, 840, 297], radius=4, fill=(50, 40, 50))
+    draw.rounded_rectangle([360, 287, 360, 297], radius=4, fill=(230, 50, 110))
 
     # Плашки стат
     metrics = [
-        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 335),
-        ("AVG", str(stats.get("avg", "0")), "None", 319, 335),
-        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 335),
-        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 445),
-        ("Assists", str(stats.get("assists", "0")), "None", 319, 445),
-        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 445),
+        ("Rating", str(stats.get("rating", "0.00")), "None", 30, 345),
+        ("AVG", str(stats.get("avg", "0")), "None", 319, 345),
+        ("Impact", str(stats.get("impact", "0.00")), "None", 608, 345),
+        ("KPR", str(stats.get("kpr", "0.00")), "None", 30, 455),
+        ("Assists", str(stats.get("assists", "0")), "None", 319, 455),
+        ("SVR", str(stats.get("svr", "0.00")), "None", 608, 455),
     ]
 
     for label, val, sub, x, y in metrics:
@@ -104,33 +104,33 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
         draw.text((x + 18, y + 68), sub, fill=(110, 115, 125), font=font_small)
 
     # --- 3. СЕКЦИЯ КАРТ (Map Statistic) ---
-    draw.text((30, 560), "Map Statistic", fill=(180, 185, 195), font=font_header)
+    draw.text((30, 570), "Map Statistic", fill=(180, 185, 195), font=font_header)
 
     # Общий Винрейт
-    draw.rounded_rectangle([30, 590, 310, 705], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.rounded_rectangle([30, 600, 310, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
     wins = stats.get("wins", 0)
     losses = stats.get("losses", 0)
     wr_val = 0
-    draw.text((50, 623), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
-    draw.text((150, 617), "Win Rate", fill=(140, 145, 155), font=font_small)
-    draw.text((150, 643), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
+    draw.text((50, 633), f"{wr_val}%", fill=(255, 255, 255), font=font_big)
+    draw.text((150, 627), "Win Rate", fill=(140, 145, 155), font=font_small)
+    draw.text((150, 653), f"W = {wins}    L = {losses}", fill=(180, 185, 195), font=font_small)
 
     # Best Map
-    draw.rounded_rectangle([330, 590, 870, 705], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
-    draw.text((360, 613), "None", fill=(255, 255, 255), font=font_num)
-    draw.text((360, 643), "W = 0    L = 0", fill=(140, 145, 155), font=font_small)
-    draw.text((360, 667), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
-    draw.text((790, 617), "BEST MAP", fill=(100, 105, 115), font=font_small)
+    draw.rounded_rectangle([330, 600, 870, 715], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+    draw.text((360, 623), "None", fill=(255, 255, 255), font=font_num)
+    draw.text((360, 653), "W = 0    L = 0", fill=(140, 145, 155), font=font_small)
+    draw.text((360, 677), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
+    draw.text((790, 627), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
-    # ВСЕ 7 КАРТ (Сетка 3 колонки, 7-я карта на последнем ряду)
+    # ВСЕ 7 КАРТ
     mini_maps = [
-        ("Sandstone", "0", "0", "0.00", "0%", 30, 725),
-        ("Province", "0", "0", "0.00", "0%", 319, 725),
-        ("Prison", "0", "0", "0.00", "0%", 608, 725),
-        ("Hanami", "0", "0", "0.00", "0%", 30, 840),
-        ("Breeze", "0", "0", "0.00", "0%", 319, 840),
-        ("Dune", "0", "0", "0.00", "0%", 608, 840),
-        ("Rust", "0", "0", "0.00", "0%", 30, 955), # Изменено на Rust
+        ("Sandstone", "0", "0", "0.00", "0%", 30, 735),
+        ("Province", "0", "0", "0.00", "0%", 319, 735),
+        ("Prison", "0", "0", "0.00", "0%", 608, 735),
+        ("Hanami", "0", "0", "0.00", "0%", 30, 850),
+        ("Breeze", "0", "0", "0.00", "0%", 319, 850),
+        ("Dune", "0", "0", "0.00", "0%", 608, 850),
+        ("Rust", "0", "0", "0.00", "0%", 30, 965),
     ]
 
     for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
@@ -146,7 +146,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     return buffer
 
 
-# --- КНОПКА ЗАКРЫТИЯ ТИКЕТА ---
+# --- КНОПКИ ТИКЕТОВ И МОДАЛКИ (Без изменений) ---
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -163,8 +163,6 @@ class CloseTicketView(discord.ui.View):
         except Exception:
             await interaction.channel.delete()
 
-
-# --- КНОПКА СОЗДАНИЯ ТИКЕТА ---
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -213,8 +211,6 @@ class TicketView(discord.ui.View):
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Не удалось создать тикет: {e}", ephemeral=True)
 
-
-# --- МОДАЛЬНОЕ ОКНО РЕГИСТРАЦИИ ---
 class RegistrationModal(discord.ui.Modal, title="Регистрация игрока"):
     player_id = discord.ui.TextInput(label="Игровой ID", placeholder="Введите ваш ID...", required=True, max_length=30)
     game_name = discord.ui.TextInput(label="Игровой никнейм", placeholder="Ник в игре...", required=True, max_length=50)
@@ -236,7 +232,6 @@ class RegistrationModal(discord.ui.Modal, title="Регистрация игро
             ephemeral=True
         )
 
-
 class RegistrationView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -244,7 +239,6 @@ class RegistrationView(discord.ui.View):
     @discord.ui.button(label="Зарегистрироваться", style=discord.ButtonStyle.blurple, emoji="🎮", custom_id="register_modal_btn")
     async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(RegistrationModal())
-
 
 class FaceitLikeBot(commands.Bot):
     def __init__(self):
@@ -282,26 +276,24 @@ class FaceitLikeBot(commands.Bot):
                 await interaction.followup.send(f"{target.display_name} не зарегистрирован.", ephemeral=True)
                 return
 
+            # Получаем никнейм и ID из базы данных (напрямую из БД)
             player_name = getattr(player, "name", target.display_name)
-            player_id_val = str(getattr(player, "player_id", None) or getattr(player, "id", "Не указан"))
-            if " | " in player_name:
+            
+            # Четкий парсинг ID, чтобы он выводился без мусора
+            db_player_id = getattr(player, "player_id", None)
+            if db_player_id:
+                player_id_val = str(db_player_id)
+            elif " | " in player_name:
                 parts = player_name.split(" | ", 1)
                 player_id_val = parts[0]
                 player_name = parts[1]
+            else:
+                player_id_val = "Не указан"
 
             stats = {
-                "total_matches": 0,
-                "wins": 0,
-                "losses": 0,
-                "kd": "0.00",
-                "kills": 0,
-                "deaths": 0,
-                "rating": "0.00",
-                "avg": "0",
-                "impact": "0.00",
-                "kpr": "0.00",
-                "assists": 0,
-                "svr": "0.00"
+                "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
+                "kills": 0, "deaths": 0, "rating": "0.00", "avg": "0",
+                "impact": "0.00", "kpr": "0.00", "assists": 0, "svr": "0.00"
             }
 
             try:
@@ -312,8 +304,7 @@ class FaceitLikeBot(commands.Bot):
                 logging.error(f"Ошибка при создании профиля: {e}")
                 await interaction.followup.send("❌ Произошла ошибка при генерации карточки профиля.", ephemeral=True)
 
-        # --- АДМИН КОМАНДЫ ---
-
+        # --- АДМИН КОМАНДЫ (Без изменений) ---
         @self.tree.command(name="ban", description="Заблокировать участника на сервере")
         @app_commands.checks.has_permissions(ban_members=True)
         @app_commands.describe(member="Участник", reason="Причина бана")
@@ -364,11 +355,11 @@ class FaceitLikeBot(commands.Bot):
                 try:
                     role = await guild.create_role(name=role_name, reason="Автоматическое создание роли варна ботом")
                 except Exception:
-                    await interaction.response.send_message(f"❌ Не удалось найти или создать роль `{role_name}` на сервере!", ephemeral=True)
+                    await interaction.response.send_message(f"❌ Не удалось найти роль `{role_name}` на сервере!", ephemeral=True)
                     return
 
             await member.add_roles(role, reason=reason)
-            await interaction.response.send_message(f"⚠️ Игроку {member.mention} выдано предупреждение **{warn_level}/3** (роль `{role_name}`). Причина: {reason}", ephemeral=True)
+            await interaction.response.send_message(f"⚠️ Игроку {member.mention} выдано предупреждение **{warn_level}/3**. Причина: {reason}", ephemeral=True)
 
         @self.tree.command(name="unwarn", description="Снять предупреждение с участника")
         @app_commands.checks.has_permissions(manage_roles=True)
@@ -385,7 +376,7 @@ class FaceitLikeBot(commands.Bot):
 
             if role and role in member.roles:
                 await member.remove_roles(role)
-                await interaction.response.send_message(f"✅ С игрока {member.mention} снята роль предупреждения `{role_name}`.", ephemeral=True)
+                await interaction.response.send_message(f"✅ С игрока {member.mention} снята роль `{role_name}`.", ephemeral=True)
             else:
                 await interaction.response.send_message(f"❌ У игрока нет роли `{role_name}`.", ephemeral=True)
 
@@ -400,10 +391,10 @@ class FaceitLikeBot(commands.Bot):
             try:
                 if action == "add":
                     await member.add_roles(role)
-                    await interaction.response.send_message(f"✅ Участнику {member.mention} успешно добавлена роль **{role.name}**.", ephemeral=True)
+                    await interaction.response.send_message(f"✅ Участнику {member.mention} добавлена роль **{role.name}**.", ephemeral=True)
                 elif action == "remove":
                     await member.remove_roles(role)
-                    await interaction.response.send_message(f"✅ У участника {member.mention} успешно убрана роль **{role.name}**.", ephemeral=True)
+                    await interaction.response.send_message(f"✅ У участника {member.mention} убрана роль **{role.name}**.", ephemeral=True)
             except Exception as e:
                 await interaction.response.send_message(f"❌ Ошибка при изменении роли: {e}", ephemeral=True)
 
@@ -432,7 +423,6 @@ async def main():
             await bot.start(config.TOKEN)
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
