@@ -1,10 +1,25 @@
 # ==========================================================
-# PICK.PY
-# СИСТЕМА ПИКА ИГРОКОВ FACEIT LIKE
+# pick.py
+# СИСТЕМА ПИКОВ ИГРОКОВ
 # ==========================================================
 
+import asyncio
 import discord
 import config
+
+
+# ==========================================================
+# НАСТРОЙКИ
+# ==========================================================
+
+PICK_CHANNEL_ID = 1530634450591813803
+
+LOBBY_CHANNEL_NAME = "Lobby"
+
+TEAM_T_PREFIX = "team voice T"
+TEAM_CT_PREFIX = "team voice CT"
+
+VOICE_DELETE_DELAY = 5 * 60
 
 
 # ==========================================================
@@ -24,30 +39,36 @@ class PickSession:
 
         self.guild_id = guild_id
 
-        # Все 10 игроков
+        # 10 игроков
         self.players = players
 
-        # Капитаны
+        # капитаны
         self.captain_a = None
         self.captain_b = None
 
-        # Команды
+        # команды
         self.team_a = []
         self.team_b = []
 
-        # Кто ходит сейчас
+        # чей ход
         self.turn = None
 
-        # Карта
+        # карты
         self.maps = config.MAP_POOL.copy()
         self.selected_map = None
 
-        # Сообщения
-        self.pick_message = None
-        self.map_message = None
+        # ID игры
+        self.match_id = None
 
-        # Завершён ли пик
-        self.finished = False
+        # войсы
+        self.voice_t = None
+        self.voice_ct = None
+
+        # сообщение с пиками
+        self.pick_message = None
+
+        # сообщение с картой
+        self.map_message = None
 
 
 # ==========================================================
@@ -56,17 +77,16 @@ class PickSession:
 
 async def start_pick(bot, guild, players):
 
-    if len(players) != 10:
-
-        print(
-            f"[PICK] Ошибка: для матча нужно 10 игроков, "
-            f"сейчас {len(players)}"
-        )
+    if guild.id in active_picks:
 
         return
 
 
-    # Создаём сессию
+    if len(players) != 10:
+
+        return
+
+
     session = PickSession(
         guild_id=guild.id,
         players=players
@@ -74,65 +94,63 @@ async def start_pick(bot, guild, players):
 
 
     # Первые два игрока становятся капитанами
+
     session.captain_a = players[0]
     session.captain_b = players[1]
 
 
     # Капитаны автоматически входят в свои команды
+
     session.team_a.append(session.captain_a)
     session.team_b.append(session.captain_b)
 
 
-    # Первым ходит капитан A
+    # Первый ход капитана A
+
     session.turn = session.captain_a.id
 
 
-    # Сохраняем активную сессию
     active_picks[guild.id] = session
 
 
-    # Канал для матчей
-    channel = bot.get_channel(
-        config.MATCH_CHANNEL_ID
-    )
+    channel = bot.get_channel(PICK_CHANNEL_ID)
 
 
     if channel is None:
 
         print(
-            "[PICK] Ошибка: MATCH_CHANNEL_ID не найден"
+            f"[PICK] Не найден канал {PICK_CHANNEL_ID}"
         )
 
         return
 
 
-    # Создаём Embed
     embed = discord.Embed(
 
-        title="🎮 НОВЫЙ МАТЧ НАЙДЕН",
+        title="🎮 НОВЫЙ МАТЧ",
 
         description=(
 
-            "🔥 Собрано 10 игроков!\n\n"
+            "10 игроков собрано!\n\n"
 
-            f"🔵 **Капитан Team A:** "
+            f"🔵 **Капитан T:** "
             f"{session.captain_a.mention}\n"
 
-            f"🔴 **Капитан Team B:** "
+            f"🔴 **Капитан CT:** "
             f"{session.captain_b.mention}\n\n"
 
-            "🎯 Начинается пик игроков.\n"
+            "📢 Начинается пик игроков.\n"
 
-            f"👉 Сейчас ходит "
+            f"👉 Сейчас ход капитана "
             f"{session.captain_a.mention}"
 
         ),
 
         color=discord.Color.blue()
+
     )
 
 
-    # Отправляем сообщение
     message = await channel.send(
 
         embed=embed,
@@ -140,6 +158,7 @@ async def start_pick(bot, guild, players):
         view=PickPlayerView(
             guild.id
         )
+
     )
 
 
@@ -147,18 +166,107 @@ async def start_pick(bot, guild, players):
 
 
 # ==========================================================
-# КНОПКА «ПИКНУТЬ ИГРОКА»
+# ОБНОВЛЕНИЕ СООБЩЕНИЯ ПИКА
 # ==========================================================
 
-class PickPlayerView(
-    discord.ui.View
-):
+async def update_pick_message(bot, session):
+
+    if not session.pick_message:
+
+        return
 
 
-    def __init__(
-        self,
-        guild_id
-    ):
+    team_a_text = "\n".join(
+
+        f"• {player.mention}"
+
+        for player in session.team_a
+
+    )
+
+
+    team_b_text = "\n".join(
+
+        f"• {player.mention}"
+
+        for player in session.team_b
+
+    )
+
+
+    available = [
+
+        player
+
+        for player in session.players
+
+        if player not in session.team_a
+
+        and player not in session.team_b
+
+    ]
+
+
+    current_captain = (
+
+        session.captain_a
+
+        if session.turn == session.captain_a.id
+
+        else session.captain_b
+
+    )
+
+
+    embed = discord.Embed(
+
+        title="🎯 ПИК ИГРОКОВ",
+
+        description=(
+
+            f"👉 Сейчас выбирает: "
+            f"{current_captain.mention}\n\n"
+
+            f"🔵 **TEAM T**\n"
+            f"{team_a_text}\n\n"
+
+            f"🔴 **TEAM CT**\n"
+            f"{team_b_text}\n\n"
+
+            f"👥 Осталось игроков: "
+            f"**{len(available)}**"
+
+        ),
+
+        color=discord.Color.blurple()
+
+    )
+
+
+    try:
+
+        await session.pick_message.edit(
+
+            embed=embed,
+
+            view=PickPlayerView(
+                session.guild_id
+            )
+
+        )
+
+    except discord.NotFound:
+
+        pass
+
+
+# ==========================================================
+# КНОПКА ПИКА ИГРОКА
+# ==========================================================
+
+class PickPlayerView(discord.ui.View):
+
+    def __init__(self, guild_id):
 
         super().__init__(
             timeout=None
@@ -169,12 +277,14 @@ class PickPlayerView(
 
     @discord.ui.button(
 
-        label="🎯 Пикнуть игрока",
+        label="Пикнуть игрока",
 
         style=discord.ButtonStyle.primary,
 
         custom_id="pick_player_button"
+
     )
+
     async def pick_player(
 
         self,
@@ -182,47 +292,30 @@ class PickPlayerView(
         interaction: discord.Interaction,
 
         button: discord.ui.Button
+
     ):
 
-
-        # Получаем сессию
         session = active_picks.get(
             self.guild_id
         )
 
 
-        # Если сессии нет
-        if session is None:
+        if not session:
 
             await interaction.response.send_message(
 
                 "❌ Активный матч не найден.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Если пик уже завершён
-        if session.finished:
+        # Проверка капитана
 
-            await interaction.response.send_message(
-
-                "❌ Пик уже завершён.",
-
-                ephemeral=True
-            )
-
-            return
-
-
-        # Пользователь
-        user = interaction.user
-
-
-        # Проверяем капитана
-        if user.id not in [
+        if interaction.user.id not in [
 
             session.captain_a.id,
 
@@ -235,37 +328,30 @@ class PickPlayerView(
                 "❌ Только капитаны могут выбирать игроков.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Проверяем очередь хода
-        if user.id != session.turn:
+        # Проверка очереди
 
-            current_captain = (
-
-                session.captain_a
-
-                if session.turn == session.captain_a.id
-
-                else session.captain_b
-            )
-
+        if interaction.user.id != session.turn:
 
             await interaction.response.send_message(
 
-                f"⏳ Сейчас ход капитана "
-                f"{current_captain.mention}",
+                "❌ Сейчас ход другого капитана.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Получаем свободных игроков
-        available_players = [
+        # Доступные игроки
+
+        available = [
 
             player
 
@@ -278,46 +364,43 @@ class PickPlayerView(
         ]
 
 
-        # Если игроков не осталось
-        if not available_players:
+        if not available:
 
-            await finish_pick(
+            await interaction.response.send_message(
 
-                interaction.client,
+                "❌ Больше нет доступных игроков.",
 
-                session
+                ephemeral=True
+
             )
 
             return
 
 
-        # Открываем меню выбора
         await interaction.response.send_message(
 
-            "🎯 **Выберите игрока:**",
+            "Выбери игрока:",
 
             view=PlayerSelectView(
 
-                guild_id=self.guild_id,
+                self.guild_id,
 
-                players=available_players,
+                available,
 
-                captain_id=user.id
+                interaction.user.id
+
             ),
 
             ephemeral=True
+
         )
 
 
 # ==========================================================
-# ВЫБОР ИГРОКА ИЗ МЕНЮ
+# ВЫБОР ИГРОКА
 # ==========================================================
 
-class PlayerSelectView(
-
-    discord.ui.View
-):
-
+class PlayerSelectView(discord.ui.View):
 
     def __init__(
 
@@ -328,20 +411,23 @@ class PlayerSelectView(
         players,
 
         captain_id
+
     ):
 
         super().__init__(
 
             timeout=60
+
         )
 
 
         self.guild_id = guild_id
 
+        self.players = players
+
         self.captain_id = captain_id
 
 
-        # Создаём варианты
         options = []
 
 
@@ -353,31 +439,29 @@ class PlayerSelectView(
 
                     label=player.display_name[:100],
 
-                    value=str(player.id),
+                    value=str(player.id)
 
-                    description=f"Выбрать {player.display_name}"[:100]
                 )
+
             )
 
 
-        # Меню
         select = discord.ui.Select(
 
-            placeholder="Выберите игрока",
+            placeholder="Выбери игрока",
 
             options=options,
 
             min_values=1,
 
             max_values=1
+
         )
 
 
-        # Callback
         select.callback = self.select_player
 
 
-        # Добавляем меню
         self.add_item(select)
 
 
@@ -386,42 +470,46 @@ class PlayerSelectView(
         self,
 
         interaction: discord.Interaction
+
     ):
 
-
-        # Получаем сессию
         session = active_picks.get(
 
             self.guild_id
+
         )
 
 
-        if session is None:
+        if not session:
 
             await interaction.response.send_message(
 
-                "❌ Матч не найден.",
+                "❌ Матч уже закончился.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Проверяем, что выбирает именно капитан
+        # Проверяем капитана ещё раз
+
         if interaction.user.id != self.captain_id:
 
             await interaction.response.send_message(
 
-                "❌ Только капитан может выбрать игрока.",
+                "❌ Это меню выбора принадлежит другому капитану.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Проверяем, что сейчас его ход
+        # Проверяем очередность
+
         if session.turn != interaction.user.id:
 
             await interaction.response.send_message(
@@ -429,45 +517,48 @@ class PlayerSelectView(
                 "❌ Сейчас ход другого капитана.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Получаем ID выбранного игрока
-        selected_id = int(
+        player_id = int(
 
             self.children[0].values[0]
+
         )
 
 
-        # Находим игрока
-        selected_player = discord.utils.get(
+        player = discord.utils.get(
 
             session.players,
 
-            id=selected_id
+            id=player_id
+
         )
 
 
-        if selected_player is None:
+        if player is None:
 
             await interaction.response.send_message(
 
                 "❌ Игрок не найден.",
 
                 ephemeral=True
+
             )
 
             return
 
 
         # Проверяем, что игрок ещё свободен
+
         if (
 
-            selected_player in session.team_a
+            player in session.team_a
 
-            or selected_player in session.team_b
+            or player in session.team_b
 
         ):
 
@@ -476,118 +567,86 @@ class PlayerSelectView(
                 "❌ Этот игрок уже выбран.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Если ходил капитан A
+        # Добавляем игрока в команду
+
         if interaction.user.id == session.captain_a.id:
 
-            session.team_a.append(
-
-                selected_player
-            )
-
+            session.team_a.append(player)
 
             session.turn = session.captain_b.id
 
+            team_name = "TEAM T"
 
-            next_captain = session.captain_b
-
-
-        # Если ходил капитан B
         else:
 
-            session.team_b.append(
-
-                selected_player
-            )
-
+            session.team_b.append(player)
 
             session.turn = session.captain_a.id
 
+            team_name = "TEAM CT"
 
-            next_captain = session.captain_a
 
-
-        # Сообщение капитану
         await interaction.response.send_message(
 
-            f"✅ Ты выбрал "
-            f"{selected_player.mention}\n\n"
-
-            f"⏳ Теперь ходит "
-            f"{next_captain.mention}",
+            f"✅ {player.mention} выбран в **{team_name}**.",
 
             ephemeral=True
+
         )
 
 
-        # Проверяем конец пика
-        await check_pick_end(
+        # Проверяем завершение
+
+        if (
+
+            len(session.team_a) == 5
+
+            and len(session.team_b) == 5
+
+        ):
+
+            await finish_player_pick(
+
+                interaction.client,
+
+                session
+
+            )
+
+            return
+
+
+        await update_pick_message(
 
             interaction.client,
 
             session
+
         )
 
 
 # ==========================================================
-# ПРОВЕРКА ЗАВЕРШЕНИЯ ПИКА
+# ЗАВЕРШЕНИЕ ПИКА ИГРОКОВ
 # ==========================================================
 
-async def check_pick_end(
+async def finish_player_pick(
 
     bot,
 
     session
+
 ):
 
-
-    # Если в каждой команде по 5 игроков
-    if (
-
-        len(session.team_a) == 5
-
-        and len(session.team_b) == 5
-
-    ):
-
-        await finish_pick(
-
-            bot,
-
-            session
-        )
-
-
-# ==========================================================
-# ЗАВЕРШЕНИЕ ПИКА И ВЫБОР КАРТЫ
-# ==========================================================
-
-async def finish_pick(
-
-    bot,
-
-    session
-):
-
-
-    # Чтобы не вызвать дважды
-    if session.finished:
-
-        return
-
-
-    # Пик игроков завершён
-    session.finished = True
-
-
-    # Получаем канал
     channel = bot.get_channel(
 
-        config.MATCH_CHANNEL_ID
+        PICK_CHANNEL_ID
+
     )
 
 
@@ -596,93 +655,76 @@ async def finish_pick(
         return
 
 
-    # Формируем список Team A
     team_a_text = "\n".join(
 
         player.mention
 
         for player in session.team_a
+
     )
 
 
-    # Формируем список Team B
     team_b_text = "\n".join(
 
         player.mention
 
         for player in session.team_b
+
     )
 
 
-    # Embed
     embed = discord.Embed(
 
-        title="🎯 ПИК ИГРОКОВ ЗАВЕРШЁН",
+        title="✅ ПИК ИГРОКОВ ЗАВЕРШЁН",
+
+        description=(
+
+            "🔵 **TEAM T**\n"
+
+            f"{team_a_text}\n\n"
+
+            "🔴 **TEAM CT**\n"
+
+            f"{team_b_text}\n\n"
+
+            "🗺 Теперь капитаны должны выбрать карту."
+
+        ),
 
         color=discord.Color.green()
+
     )
 
 
-    embed.add_field(
-
-        name="🔵 TEAM A",
-
-        value=team_a_text,
-
-        inline=True
-    )
-
-
-    embed.add_field(
-
-        name="🔴 TEAM B",
-
-        value=team_b_text,
-
-        inline=True
-    )
-
-
-    embed.set_footer(
-
-        text="Теперь капитаны должны выбрать карту"
-    )
-
-
-    # Отправляем сообщение
-    await channel.send(
+    message = await channel.send(
 
         embed=embed,
 
         view=MapPickView(
 
             session.guild_id
+
         )
+
     )
+
+
+    session.map_message = message
 
 
 # ==========================================================
 # КНОПКА ВЫБОРА КАРТЫ
 # ==========================================================
 
-class MapPickView(
+class MapPickView(discord.ui.View):
 
-    discord.ui.View
-):
-
-
-    def __init__(
-
-        self,
-
-        guild_id
-    ):
+    def __init__(self, guild_id):
 
         super().__init__(
 
             timeout=None
-        )
 
+        )
 
         self.guild_id = guild_id
 
@@ -694,7 +736,9 @@ class MapPickView(
         style=discord.ButtonStyle.success,
 
         custom_id="choose_map_button"
+
     )
+
     async def choose_map(
 
         self,
@@ -702,29 +746,31 @@ class MapPickView(
         interaction: discord.Interaction,
 
         button: discord.ui.Button
+
     ):
 
-
-        # Получаем сессию
         session = active_picks.get(
 
             self.guild_id
+
         )
 
 
-        if session is None:
+        if not session:
 
             await interaction.response.send_message(
 
                 "❌ Матч не найден.",
 
                 ephemeral=True
+
             )
 
             return
 
 
         # Только капитаны
+
         if interaction.user.id not in [
 
             session.captain_a.id,
@@ -738,52 +784,57 @@ class MapPickView(
                 "❌ Только капитаны могут выбирать карту.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Отправляем меню карты
         await interaction.response.send_message(
 
-            "🗺 **Выберите карту:**",
+            "Выберите карту:",
 
             view=MapSelectView(
 
-                self.guild_id
+                self.guild_id,
+
+                interaction.user.id
+
             ),
 
             ephemeral=True
+
         )
 
 
 # ==========================================================
-# МЕНЮ ВЫБОРА КАРТЫ
+# SELECT КАРТЫ
 # ==========================================================
 
-class MapSelectView(
-
-    discord.ui.View
-):
-
+class MapSelectView(discord.ui.View):
 
     def __init__(
 
         self,
 
-        guild_id
+        guild_id,
+
+        captain_id
+
     ):
 
         super().__init__(
 
             timeout=60
+
         )
 
 
         self.guild_id = guild_id
 
+        self.captain_id = captain_id
 
-        # Карты из config.py
+
         options = [
 
             discord.SelectOption(
@@ -791,120 +842,335 @@ class MapSelectView(
                 label=map_name,
 
                 value=map_name
+
             )
 
             for map_name in config.MAP_POOL
+
         ]
 
 
-        # Меню
         select = discord.ui.Select(
 
             placeholder="Выберите карту",
 
-            options=options,
+            options=options
 
-            min_values=1,
-
-            max_values=1
         )
 
 
-        # Callback
-        select.callback = self.choose
+        select.callback = self.choose_map
 
 
-        # Добавляем
         self.add_item(select)
 
 
-    async def choose(
+    async def choose_map(
 
         self,
 
         interaction: discord.Interaction
+
     ):
 
-
-        # Получаем сессию
         session = active_picks.get(
 
             self.guild_id
+
         )
 
 
-        if session is None:
+        if not session:
 
             await interaction.response.send_message(
 
                 "❌ Матч не найден.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Только капитаны
-        if interaction.user.id not in [
+        # Проверяем капитана
 
-            session.captain_a.id,
-
-            session.captain_b.id
-
-        ]:
+        if interaction.user.id != self.captain_id:
 
             await interaction.response.send_message(
 
-                "❌ Только капитаны могут выбрать карту.",
+                "❌ Это меню принадлежит другому капитану.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Если карта уже выбрана
-        if session.selected_map is not None:
+        # Проверяем, что карта ещё не выбрана
+
+        if session.selected_map:
 
             await interaction.response.send_message(
 
                 "❌ Карта уже выбрана.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Получаем выбранную карту
         selected_map = self.children[0].values[0]
 
 
-        # Сохраняем карту
         session.selected_map = selected_map
 
 
-        # Ответ
         await interaction.response.send_message(
 
-            f"✅ Выбрана карта: **{selected_map}**",
+            f"✅ Карта выбрана: **{selected_map}**",
 
             ephemeral=True
+
         )
 
 
-        # Создаём итоговую карточку
-        await send_match_card(
+        await create_match_and_voices(
 
             interaction.client,
 
+            interaction.guild,
+
             session
+
         )
 
 
 # ==========================================================
-# ИТОГОВАЯ КАРТОЧКА МАТЧА
+# СОЗДАНИЕ МАТЧА И ВОЙСОВ
+# ==========================================================
+
+async def create_match_and_voices(
+
+    bot,
+
+    guild,
+
+    session
+
+):
+
+    # Создаём запись матча в БД
+
+    try:
+
+        session.match_id = bot.db.create_match(
+
+            guild.id,
+
+            [
+
+                player.id
+
+                for player in session.team_a
+
+            ],
+
+            [
+
+                player.id
+
+                for player in session.team_b
+
+            ]
+
+        )
+
+
+        bot.db.set_match_map(
+
+            session.match_id,
+
+            session.selected_map
+
+        )
+
+    except Exception as error:
+
+        print(
+
+            f"[PICK] Ошибка создания матча в БД: {error}"
+
+        )
+
+
+    # Создаём войсы
+
+    try:
+
+        overwrites = {
+
+            guild.default_role: discord.PermissionOverwrite(
+
+                connect=False,
+
+                view_channel=False
+
+            )
+
+        }
+
+
+        # Войс Team T
+
+        session.voice_t = await guild.create_voice_channel(
+
+            name=(
+
+                f"{TEAM_T_PREFIX} "
+
+                f"{session.match_id}"
+
+            ),
+
+            overwrites=overwrites
+
+        )
+
+
+        # Войс Team CT
+
+        session.voice_ct = await guild.create_voice_channel(
+
+            name=(
+
+                f"{TEAM_CT_PREFIX} "
+
+                f"{session.match_id}"
+
+            ),
+
+            overwrites=overwrites
+
+        )
+
+
+        # Разрешаем игрокам видеть свои войсы
+
+        for player in session.team_a:
+
+            await session.voice_t.set_permissions(
+
+                player,
+
+                connect=True,
+
+                view_channel=True
+
+            )
+
+
+        for player in session.team_b:
+
+            await session.voice_ct.set_permissions(
+
+                player,
+
+                connect=True,
+
+                view_channel=True
+
+            )
+
+
+        # Перемещаем игроков
+
+        for player in session.team_a:
+
+            member = guild.get_member(
+
+                player.id
+
+            )
+
+
+            if member and member.voice:
+
+                await member.move_to(
+
+                    session.voice_t
+
+                )
+
+
+        for player in session.team_b:
+
+            member = guild.get_member(
+
+                player.id
+
+            )
+
+
+            if member and member.voice:
+
+                await member.move_to(
+
+                    session.voice_ct
+
+                )
+
+
+        # Сохраняем войсы в БД
+
+        try:
+
+            bot.db.set_match_channels(
+
+                session.match_id,
+
+                0,
+
+                PICK_CHANNEL_ID,
+
+                session.voice_t.id,
+
+                session.voice_ct.id
+
+            )
+
+        except Exception as error:
+
+            print(
+
+                f"[PICK] Ошибка сохранения войсов: {error}"
+
+            )
+
+
+    except Exception as error:
+
+        print(
+
+            f"[PICK] Ошибка создания войсов: {error}"
+
+        )
+
+
+    await send_match_card(
+
+        bot,
+
+        session
+
+    )
+
+
+# ==========================================================
+# ФИНАЛЬНАЯ КАРТОЧКА МАТЧА
 # ==========================================================
 
 async def send_match_card(
@@ -912,13 +1178,13 @@ async def send_match_card(
     bot,
 
     session
+
 ):
 
-
-    # Получаем канал
     channel = bot.get_channel(
 
-        config.MATCH_CHANNEL_ID
+        PICK_CHANNEL_ID
+
     )
 
 
@@ -927,72 +1193,60 @@ async def send_match_card(
         return
 
 
-    # Team A
     team_a_text = "\n".join(
 
         player.mention
 
         for player in session.team_a
+
     )
 
 
-    # Team B
     team_b_text = "\n".join(
 
         player.mention
 
         for player in session.team_b
+
     )
 
 
-    # Embed
     embed = discord.Embed(
 
         title="🔥 МАТЧ ГОТОВ",
 
         description=(
 
+            f"🆔 **Игра:** `{session.match_id}`\n\n"
+
             f"🗺 **Карта:** "
-            f"**{session.selected_map}**"
+            f"`{session.selected_map}`\n\n"
+
+            f"🔵 **TEAM T**\n"
+            f"{team_a_text}\n\n"
+
+            f"🔴 **TEAM CT**\n"
+            f"{team_b_text}\n\n"
+
+            "🎧 Игроки были перемещены в свои голосовые каналы."
 
         ),
 
         color=discord.Color.gold()
+
     )
 
 
-    embed.add_field(
-
-        name="🔵 TEAM A",
-
-        value=team_a_text,
-
-        inline=True
-    )
-
-
-    embed.add_field(
-
-        name="🔴 TEAM B",
-
-        value=team_b_text,
-
-        inline=True
-    )
-
-
-    embed.set_footer(
-
-        text="Используйте кнопки ниже"
-    )
-
-
-    # Отправляем карточку
     await channel.send(
 
         embed=embed,
 
-        view=MatchButtons()
+        view=MatchButtons(
+
+            session.match_id
+
+        )
+
     )
 
 
@@ -1000,26 +1254,24 @@ async def send_match_card(
 # КНОПКИ МАТЧА
 # ==========================================================
 
-class MatchButtons(
+class MatchButtons(discord.ui.View):
 
-    discord.ui.View
-):
-
-
-    def __init__(
-
-        self
-    ):
+    def __init__(self, match_id):
 
         super().__init__(
 
             timeout=None
+
         )
 
+        self.match_id = match_id
 
-    # ======================================================
+
+    # ------------------------------------------------------
+
     # ПОЛУЧИТЬ ID
-    # ======================================================
+
+    # ------------------------------------------------------
 
     @discord.ui.button(
 
@@ -1028,7 +1280,9 @@ class MatchButtons(
         style=discord.ButtonStyle.primary,
 
         custom_id="get_standoff_id"
+
     )
+
     async def get_id(
 
         self,
@@ -1036,57 +1290,61 @@ class MatchButtons(
         interaction: discord.Interaction,
 
         button: discord.ui.Button
+
     ):
 
-
-        # Получаем игрока из базы
         player = interaction.client.db.get_player(
 
             interaction.guild.id,
 
             interaction.user.id
+
         )
 
 
-        # Если игрок не зарегистрирован
-        if player is None:
+        if not player:
 
             await interaction.response.send_message(
 
-                "❌ Ты не зарегистрирован в боте.",
+                "❌ Ты не зарегистрирован.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Если ID отсутствует
-        if not player["standoff_id"]:
+        standoff_id = player["standoff_id"]
+
+
+        if not standoff_id:
 
             await interaction.response.send_message(
 
-                "❌ У тебя не указан Standoff 2 ID.",
+                "❌ У тебя не указан игровой ID.",
 
                 ephemeral=True
+
             )
 
             return
 
 
-        # Отправляем ID
         await interaction.response.send_message(
 
-            f"🆔 Твой Standoff 2 ID:\n"
-            f"`{player['standoff_id']}`",
+            f"🆔 Твой ID: `{standoff_id}`",
 
             ephemeral=True
+
         )
 
 
-    # ======================================================
+    # ------------------------------------------------------
+
     # ОТПРАВИТЬ РЕЗУЛЬТАТЫ
-    # ======================================================
+
+    # ------------------------------------------------------
 
     @discord.ui.button(
 
@@ -1094,8 +1352,10 @@ class MatchButtons(
 
         style=discord.ButtonStyle.success,
 
-        custom_id="send_match_result"
+        custom_id="send_match_results"
+
     )
+
     async def send_results(
 
         self,
@@ -1103,50 +1363,56 @@ class MatchButtons(
         interaction: discord.Interaction,
 
         button: discord.ui.Button
+
     ):
 
-
-        # Открываем форму
         await interaction.response.send_modal(
 
-            ResultModal()
+            ResultsModal(
+
+                self.match_id
+
+            )
+
         )
 
 
 # ==========================================================
-# ФОРМА РЕЗУЛЬТАТА
+# ФОРМА РЕЗУЛЬТАТОВ
 # ==========================================================
 
-class ResultModal(
+class ResultsModal(discord.ui.Modal):
 
-    discord.ui.Modal,
+    def __init__(self, match_id):
 
-    title="📤 Отправить результаты"
-):
+        super().__init__(
 
+            title="Отправить результаты"
 
-    result = discord.ui.TextInput(
-
-        label="Результат матча",
-
-        placeholder="Например: Team A 13 : 8 Team B",
-
-        required=True,
-
-        max_length=100
-    )
+        )
 
 
-    screenshot = discord.ui.TextInput(
+        self.match_id = match_id
 
-        label="Ссылка на скриншот",
 
-        placeholder="Вставьте ссылку на скриншот результата",
+        self.result = discord.ui.TextInput(
 
-        required=False,
+            label="Результат матча",
 
-        max_length=500
-    )
+            placeholder="Например: Team T 13 - 9 Team CT",
+
+            required=True,
+
+            max_length=100
+
+        )
+
+
+        self.add_item(
+
+            self.result
+
+        )
 
 
     async def on_submit(
@@ -1154,72 +1420,123 @@ class ResultModal(
         self,
 
         interaction: discord.Interaction
+
     ):
 
-
-        # Отправляем результат
         await interaction.response.send_message(
 
             "✅ Результат отправлен.",
 
             ephemeral=True
+
         )
 
 
-        # Канал результатов
-        channel = interaction.client.get_channel(
+        # Через 5 минут удаляем войсы
 
-            config.RESULTS_CHANNEL_ID
+        asyncio.create_task(
+
+            delete_match_voices_after_delay(
+
+                interaction.client,
+
+                interaction.guild,
+
+                self.match_id
+
+            )
+
         )
 
 
-        if channel is None:
+# ==========================================================
+# УДАЛЕНИЕ ВОЙСОВ ЧЕРЕЗ 5 МИНУТ
+# ==========================================================
+
+async def delete_match_voices_after_delay(
+
+    bot,
+
+    guild,
+
+    match_id
+
+):
+
+    await asyncio.sleep(
+
+        VOICE_DELETE_DELAY
+
+    )
+
+
+    try:
+
+        match = bot.db.get_match(
+
+            match_id
+
+        )
+
+
+        if not match:
 
             return
 
 
-        # Embed результата
-        embed = discord.Embed(
+        voice_ids = [
 
-            title="📊 РЕЗУЛЬТАТ МАТЧА",
+            match["voice1_id"],
 
-            color=discord.Color.green()
-        )
+            match["voice2_id"]
 
-
-        embed.add_field(
-
-            name="🏆 Результат",
-
-            value=self.result.value,
-
-            inline=False
-        )
+        ]
 
 
-        if self.screenshot.value:
+        for voice_id in voice_ids:
 
-            embed.add_field(
+            if not voice_id:
 
-                name="🖼 Скриншот",
+                continue
 
-                value=self.screenshot.value,
 
-                inline=False
+            channel = guild.get_channel(
+
+                voice_id
+
             )
 
 
-        embed.add_field(
+            if channel:
 
-            name="👤 Отправил",
+                try:
 
-            value=interaction.user.mention,
+                    await channel.delete(
 
-            inline=False
+                        reason="Матч завершён"
+
+                    )
+
+                except discord.NotFound:
+
+                    pass
+
+
+        # Удаляем активный пик
+
+        active_picks.pop(
+
+            guild.id,
+
+            None
+
         )
 
 
-        await channel.send(
+    except Exception as error:
 
-            embed=embed
+        print(
+
+            f"[PICK] Ошибка удаления войсов: {error}"
+
         )
