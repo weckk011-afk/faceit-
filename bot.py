@@ -95,13 +95,54 @@ class TicketView(discord.ui.View):
             )
 
 
+# --- МОДАЛЬНОЕ ОКНО РЕГИСТРАЦИИ ---
+class RegistrationModal(discord.ui.Modal, title="Регистрация игрока"):
+    game_name = discord.ui.TextInput(
+        label="Игровой никнейм",
+        placeholder="Введите ваш ник в игре...",
+        required=True,
+        max_length=50,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        user = interaction.user
+        nickname = self.game_name.value
+
+        # Сохраняем в базу данных
+        interaction.client.db.add_player(
+            guild_id=interaction.guild_id,
+            user_id=user.id,
+            name=nickname
+        )
+
+        await interaction.response.send_message(
+            f"✅ Вы успешно зарегистрированы! Ваш ник: **{nickname}**",
+            ephemeral=True
+        )
+
+
+# --- КНОПКА ВЫЗОВА РЕГИСТРАЦИИ ---
+class RegistrationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Зарегистрироваться",
+        style=discord.ButtonStyle.blurple,
+        emoji="🎮",
+        custom_id="register_modal_btn",
+    )
+    async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RegistrationModal())
+
+
 class FaceitLikeBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.db = Database()
 
     async def setup_hook(self):
-        # Регистрируем команду тикетов прямо здесь, без папки cogs
+        # 1. Команда панели тикетов
         @self.tree.command(
             name="setup_ticket",
             description="Опубликовать панель создания тикетов (админ)",
@@ -123,6 +164,24 @@ class FaceitLikeBot(commands.Bot):
             await interaction.channel.send(embed=embed, view=view)
             await interaction.response.send_message(
                 "Панель тикетов успешно опубликована!", ephemeral=True
+            )
+
+        # 2. Команда публикации панели регистрации (/postregister)
+        @self.tree.command(
+            name="postregister",
+            description="Опубликовать панель регистрации игроков (админ)",
+        )
+        @app_commands.checks.has_permissions(administrator=True)
+        async def postregister(interaction: discord.Interaction):
+            embed = discord.Embed(
+                title="📝 Регистрация на сервере",
+                description="Нажмите на кнопку ниже, чтобы зарегистрировать свой игровой никнейм и начать играть.",
+                color=discord.Color.blue(),
+            )
+            view = RegistrationView()
+            await interaction.channel.send(embed=embed, view=view)
+            await interaction.response.send_message(
+                "Панель регистрации успешно опубликована!", ephemeral=True
             )
 
         synced = await self.tree.sync()
