@@ -20,7 +20,7 @@ INTENTS.message_content = True
 
 
 def get_font(size: int):
-    # Расширенный поиск шрифтов (ищет и на Windows, и на Linux)
+    # Расширенный поиск шрифтов
     font_paths = [
         "arial.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
@@ -36,18 +36,18 @@ def get_font(size: int):
             except Exception:
                 continue
                 
-    logging.warning("⚠️ ВНИМАНИЕ: Шрифт не найден! Положите файл arial.ttf в папку с ботом, иначе текст будет мелким и с квадратами.")
+    logging.warning("⚠️ ВНИМАНИЕ: Шрифт не найден! Положите файл arial.ttf в папку с ботом.")
     return ImageFont.load_default()
 
 
-def generate_detailed_profile_card(member_name: str, player_id: str, league: str, stats: dict) -> io.BytesIO:
+def generate_detailed_profile_card(member_name: str, player_id: str, stats: dict) -> io.BytesIO:
     width, height = 900, 1180
     image = Image.new("RGB", (width, height), color=(15, 16, 20))
     draw = ImageDraw.Draw(image)
 
-    # Шрифты с учетом увеличенного никнейма
-    font_title = get_font(90)   # ОГРОМНЫЙ никнейм (в 3 раза больше)
-    font_id = get_font(20)      # Шрифт для ID
+    # Шрифты (никнейм теперь 49)
+    font_title = get_font(49)
+    font_id = get_font(20)
     font_header = get_font(16)
     font_text = get_font(15)
     font_small = get_font(12)
@@ -60,13 +60,11 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     # Квадрат для аватара
     draw.rounded_rectangle([45, 35, 145, 135], radius=8, fill=(50, 53, 63))
     
-    # Никнейм (опущен ниже и увеличен)
-    draw.text((170, 30), member_name, fill=(255, 255, 255), font=font_title)
+    # Никнейм (размер 49)
+    draw.text((170, 45), member_name, fill=(255, 255, 255), font=font_title)
     
-    # ID из базы данных (под никнеймом)
-    draw.text((175, 125), f"ID: {player_id}", fill=(130, 135, 145), font=font_id)
-
-    draw.text((680, 65), league.upper(), fill=(255, 215, 0), font=font_big)
+    # ID из базы данных
+    draw.text((175, 110), f"ID: {player_id}", fill=(130, 135, 145), font=font_id)
 
     # --- 2. СЕКЦИЯ СТАТИСТИКИ (Statistic) ---
     draw.text((30, 185), "Statistic", fill=(180, 185, 195), font=font_header)
@@ -122,18 +120,30 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     draw.text((360, 677), "K/D = 0.00    W/R = 0%", fill=(255, 200, 100), font=font_small)
     draw.text((790, 627), "BEST MAP", fill=(100, 105, 115), font=font_small)
 
-    # ВСЕ 7 КАРТ
-    mini_maps = [
+    # ВСЕ 7 КАРТ (Идеальное распределение без огрызков снизу)
+    # Ряд 1 и 2: Делаем по 2 широких блока (ширина 405)
+    wide_maps = [
         ("Sandstone", "0", "0", "0.00", "0%", 30, 735),
-        ("Province", "0", "0", "0.00", "0%", 319, 735),
-        ("Prison", "0", "0", "0.00", "0%", 608, 735),
-        ("Hanami", "0", "0", "0.00", "0%", 30, 850),
-        ("Breeze", "0", "0", "0.00", "0%", 319, 850),
-        ("Dune", "0", "0", "0.00", "0%", 608, 850),
-        ("Rust", "0", "0", "0.00", "0%", 30, 965),
+        ("Province", "0", "0", "0.00", "0%", 465, 735),
+        ("Prison", "0", "0", "0.00", "0%", 30, 850),
+        ("Hanami", "0", "0", "0.00", "0%", 465, 850),
     ]
 
-    for m_name, m_w, m_l, m_kd, m_wr, x, y in mini_maps:
+    for m_name, m_w, m_l, m_kd, m_wr, x, y in wide_maps:
+        draw.rounded_rectangle([x, y, x + 405, y + 100], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
+        draw.text((x + 18, y + 12), m_name, fill=(255, 255, 255), font=font_text)
+        draw.text((x + 18, y + 38), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
+        draw.text((x + 18, y + 65), f"K/D = {m_kd}", fill=(210, 190, 110), font=font_small)
+        draw.text((x + 220, y + 65), f"W/R = {m_wr}", fill=(210, 190, 110), font=font_small)
+
+    # Ряд 3: Делаем 3 стандартных блока (ширина 262)
+    standard_maps = [
+        ("Breeze", "0", "0", "0.00", "0%", 30, 965),
+        ("Dune", "0", "0", "0.00", "0%", 319, 965),
+        ("Rust", "0", "0", "0.00", "0%", 608, 965),
+    ]
+
+    for m_name, m_w, m_l, m_kd, m_wr, x, y in standard_maps:
         draw.rounded_rectangle([x, y, x + 262, y + 100], radius=10, fill=(24, 26, 32), outline=(40, 43, 52))
         draw.text((x + 18, y + 12), m_name, fill=(255, 255, 255), font=font_text)
         draw.text((x + 18, y + 38), f"W = {m_w}   L = {m_l}", fill=(140, 145, 155), font=font_small)
@@ -146,7 +156,7 @@ def generate_detailed_profile_card(member_name: str, player_id: str, league: str
     return buffer
 
 
-# --- КНОПКИ ТИКЕТОВ И МОДАЛКИ (Без изменений) ---
+# --- КНОПКИ ТИКЕТОВ И МОДАЛКИ ---
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -260,14 +270,10 @@ class FaceitLikeBot(commands.Bot):
             await interaction.channel.send(embed=embed, view=RegistrationView())
             await interaction.response.send_message("Панель регистрации опубликована!", ephemeral=True)
 
+        # Команда profile теперь БЕЗ выбора лиги
         @self.tree.command(name="profile", description="Показать профиль и карточку статистики")
-        @app_commands.choices(league=[
-            app_commands.Choice(name="Pro", value="pro"),
-            app_commands.Choice(name="Division", value="division"),
-            app_commands.Choice(name="Prospect", value="prospect"),
-        ])
-        @app_commands.describe(league="Выберите лигу", user="Чей профиль показать")
-        async def profile(interaction: discord.Interaction, league: str, user: discord.Member = None):
+        @app_commands.describe(user="Чей профиль показать")
+        async def profile(interaction: discord.Interaction, user: discord.Member = None):
             await interaction.response.defer(ephemeral=True)
 
             target = user or interaction.user
@@ -276,19 +282,26 @@ class FaceitLikeBot(commands.Bot):
                 await interaction.followup.send(f"{target.display_name} не зарегистрирован.", ephemeral=True)
                 return
 
-            # Получаем никнейм и ID из базы данных (напрямую из БД)
-            player_name = getattr(player, "name", target.display_name)
-            
-            # Четкий парсинг ID, чтобы он выводился без мусора
-            db_player_id = getattr(player, "player_id", None)
-            if db_player_id:
-                player_id_val = str(db_player_id)
-            elif " | " in player_name:
+            player_name = target.display_name
+            player_id_val = "Не указан"
+
+            # Умный поиск ID и Никнейма (поймет любой формат базы данных)
+            if hasattr(player, "player_id"):
+                player_id_val = str(player.player_id)
+                player_name = str(getattr(player, "name", target.display_name))
+            elif isinstance(player, tuple):
+                if len(player) >= 4:
+                    player_id_val = str(player[2]) # ID обычно здесь
+                    player_name = str(player[3])   # Имя обычно здесь
+                elif len(player) == 3:
+                    player_id_val = str(player[1])
+                    player_name = str(player[2])
+
+            # Резервный вариант, если все сохранено в строку
+            if " | " in player_name and (player_id_val == "Не указан" or not player_id_val):
                 parts = player_name.split(" | ", 1)
                 player_id_val = parts[0]
                 player_name = parts[1]
-            else:
-                player_id_val = "Не указан"
 
             stats = {
                 "total_matches": 0, "wins": 0, "losses": 0, "kd": "0.00",
@@ -297,14 +310,14 @@ class FaceitLikeBot(commands.Bot):
             }
 
             try:
-                card_buffer = generate_detailed_profile_card(player_name, player_id_val, league, stats)
+                card_buffer = generate_detailed_profile_card(player_name, player_id_val, stats)
                 file = discord.File(fp=card_buffer, filename="profile.png")
                 await interaction.followup.send(file=file, ephemeral=True)
             except Exception as e:
                 logging.error(f"Ошибка при создании профиля: {e}")
                 await interaction.followup.send("❌ Произошла ошибка при генерации карточки профиля.", ephemeral=True)
 
-        # --- АДМИН КОМАНДЫ (Без изменений) ---
+        # --- АДМИН КОМАНДЫ ---
         @self.tree.command(name="ban", description="Заблокировать участника на сервере")
         @app_commands.checks.has_permissions(ban_members=True)
         @app_commands.describe(member="Участник", reason="Причина бана")
