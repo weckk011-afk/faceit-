@@ -1,9 +1,6 @@
 """
-OCR Standoff 2 scoreboard
-Распознаёт:
-Ник | Убийства | Ассисты | Смерти | Счёт
-
-Деньги и пинг игнорируются.
+Standoff 2 scoreboard OCR
+K / A / D / Score / Ping
 """
 
 from __future__ import annotations
@@ -18,9 +15,7 @@ from PIL import Image, ImageOps
 try:
     import pytesseract
     from pytesseract import Output
-
     OCR_AVAILABLE = True
-
 except ImportError:
     pytesseract = None
     Output = None
@@ -42,15 +37,11 @@ HEADER_WORDS = (
     "оборона",
     "атака",
     "турнир",
-    "овертайм",
-    "наблюдател",
-    "россия",
-    "кастом",
+    "овертайм"
 )
 
 
 def _to_pil(image: Any):
-
     if isinstance(image, Image.Image):
         return image
 
@@ -60,7 +51,7 @@ def _to_pil(image: Any):
     if isinstance(image, str):
         return Image.open(image)
 
-    raise TypeError("Неверный формат изображения")
+    raise TypeError("bad image")
 
 
 def _preprocess(img):
@@ -70,14 +61,13 @@ def _preprocess(img):
     img = img.convert("L")
 
     img = img.resize(
-        (
-            w * 3,
-            h * 3
-        ),
+        (w * 3, h * 3),
         Image.LANCZOS
     )
 
-    img = ImageOps.autocontrast(img)
+    img = ImageOps.autocontrast(
+        img
+    )
 
     return img
 
@@ -86,7 +76,7 @@ def _preprocess(img):
 def _clean_nick(text):
 
     text = re.sub(
-        r"[^\wА-Яа-яЁё\[\]\-_ ]+",
+        r"[^A-Za-zА-Яа-яЁё0-9_\[\]\- ]",
         " ",
         text
     )
@@ -103,29 +93,25 @@ def _clean_nick(text):
 
 def _group_lines(data):
 
-    words = []
+    words=[]
 
-    count = len(data["text"])
+    total=len(data["text"])
 
+    for i in range(total):
 
-    for i in range(count):
-
-        txt = data["text"][i]
+        txt=data["text"][i].strip()
 
         if not txt:
             continue
 
 
-        words.append(
-            {
-                "text": txt,
-                "x": data["left"][i],
-                "y": data["top"][i],
-                "w": data["width"][i],
-                "h": data["height"][i],
-                "cy": data["top"][i] + data["height"][i] / 2,
-            }
-        )
+        words.append({
+            "text":txt,
+            "x":data["left"][i],
+            "y":data["top"][i],
+            "h":data["height"][i],
+            "cy":data["top"][i]+data["height"][i]/2
+        })
 
 
     if not words:
@@ -133,23 +119,22 @@ def _group_lines(data):
 
 
     words.sort(
-        key=lambda x: x["cy"]
+        key=lambda x:x["cy"]
     )
 
 
-    lines = []
-    current = []
+    lines=[]
 
-    last_y = None
+    current=[]
+    last_y=None
 
 
-    for word in words:
+    for w in words:
 
-        if (
-            last_y is None
-            or abs(word["cy"] - last_y) < 25
-        ):
-            current.append(word)
+        if last_y is None or abs(w["cy"]-last_y)<20:
+
+            current.append(w)
+            last_y=w["cy"]
 
         else:
 
@@ -160,10 +145,8 @@ def _group_lines(data):
                 )
             )
 
-            current = [word]
-
-
-        last_y = word["cy"]
+            current=[w]
+            last_y=w["cy"]
 
 
     if current:
@@ -179,218 +162,195 @@ def _group_lines(data):
 
 
 
-def _parse_row(words, side):
+def _parse_player(line, side):
 
-    text = " ".join(
-        x["text"]
-        for x in words
-    ).lower()
-
-
-    # убираем заголовки
-    if any(
-        h in text
-        for h in HEADER_WORDS
-    ):
-        return None
+    text=" ".join(
+        x["text"] for x in line
+    )
 
 
-
-    numbers = []
-
-
-    for w in words:
-
-        n = re.sub(
-            r"[^\d]",
-            "",
-            w["text"]
-        )
+    low=text.lower()
 
 
-        if n.isdigit():
+    for h in HEADER_WORDS:
 
-            numbers.append(
+        if h in low:
+            return None
+
+
+
+    nums=[]
+
+
+    for word in line:
+
+        t=word["text"]
+
+        # игнорируем деньги
+        if "$" in t:
+            continue
+
+
+        if t.isdigit():
+
+            nums.append(
                 (
-                    w,
-                    int(n)
+                    word["x"],
+                    int(t)
                 )
             )
 
 
 
-    # минимум:
-    # K A D SCORE
-
-    if len(numbers) < 4:
+    if len(nums)<5:
         return None
 
 
 
-    stats = numbers[-4:]
+    values=[
+        x[1] for x in nums[-5:]
+    ]
 
 
-    kills = stats[0][1]
-    assists = stats[1][1]
-    deaths = stats[2][1]
-    score = stats[3][1]
+    kills, assists, deaths, score, ping = values
 
 
 
-    if not (
-        0 <= kills <= 60
-        and 0 <= assists <= 60
-        and 0 <= deaths <= 60
-        and 0 <= score <= 300
-    ):
+    if kills>60:
+        return None
+
+    if assists>60:
+        return None
+
+    if deaths>60:
+        return None
+
+    if score>300:
+        return None
+
+    if ping>999:
         return None
 
 
 
-    first_stat_x = stats[0][0]["x"]
+    first_stat_x=nums[-5][0]
 
 
-    nick = " ".join(
-        w["text"]
-        for w in words
-        if w["x"] < first_stat_x
+    nick=" ".join(
+        x["text"]
+        for x in line
+        if x["x"] < first_stat_x
     )
 
 
-    nick = _clean_nick(nick)
-
-
-    if len(nick) < 2:
-        return None
+    nick=_clean_nick(
+        nick
+    )
 
 
 
     return {
-        "side": side,
-        "nick": nick,
 
-        "money": None,
+        "side":side,
+        "nick":nick or "?",
+        "money":None,
 
-        "kills": kills,
-        "assists": assists,
-        "deaths": deaths,
+        "kills":kills,
+        "assists":assists,
+        "deaths":deaths,
 
-        "score": score,
+        "score":score,
+        "ping":ping
 
-        "ping": None,
     }
-    def _ocr_side(img, side):
-
-    pre = _preprocess(img)
 
 
-    data = pytesseract.image_to_data(
-        pre,
+
+def _ocr_side(img, side):
+
+    img=_preprocess(
+        img
+    )
+
+
+    data=pytesseract.image_to_data(
+        img,
         lang="rus+eng",
         config="--psm 6",
         output_type=Output.DICT
     )
 
 
-    raw = pytesseract.image_to_string(
-        pre,
+    raw=pytesseract.image_to_string(
+        img,
         lang="rus+eng",
         config="--psm 6"
     )
 
 
-    lines = _group_lines(data)
+    lines=_group_lines(
+        data
+    )
 
 
-    rows = []
+    players=[]
 
 
     for line in lines:
 
-        row = _parse_row(
+        player=_parse_player(
             line,
             side
         )
 
-        if row:
-            rows.append(row)
+        if player:
+            players.append(
+                player
+            )
+
+
+    return players[:5], raw
 
 
 
-    # убираем дубли OCR
+def _get_score(img):
 
-    result = []
-    seen = set()
-
-
-    for r in rows:
-
-        key = (
-            r["nick"],
-            r["kills"],
-            r["assists"],
-            r["deaths"],
-            r["score"]
-        )
+    w,h=img.size
 
 
-        if key in seen:
-            continue
-
-
-        seen.add(key)
-        result.append(r)
-
-
-
-    return result[:5], raw
-
-
-
-
-
-def _parse_match_score(img):
-
-    w, h = img.size
-
-
-    # центр сверху где счёт 12:15
-
-    crop = img.crop(
+    crop=img.crop(
         (
-            int(w * 0.35),
-            int(h * 0.15),
-            int(w * 0.65),
-            int(h * 0.35)
+            int(w*0.42),
+            int(h*0.12),
+            int(w*0.58),
+            int(h*0.25)
         )
     )
 
 
-    crop = _preprocess(crop)
-
-
-    txt = pytesseract.image_to_string(
-        crop,
-        config="--psm 6 -c tessedit_char_whitelist=0123456789:"
+    crop=_preprocess(
+        crop
     )
 
 
-    nums = re.findall(
-        r"\d{1,2}",
+    txt=pytesseract.image_to_string(
+        crop,
+        config="--psm 7"
+    )
+
+
+    nums=re.findall(
+        r"\d+",
         txt
     )
 
 
-    if len(nums) >= 2:
+    if len(nums)>=2:
 
-        return (
-            f"{nums[0]}:{nums[1]}"
-        )
+        return f"{nums[0]}:{nums[1]}"
 
 
     return None
-
-
 
 
 
@@ -400,220 +360,113 @@ def parse_standoff_scoreboard(image):
     if not OCR_AVAILABLE:
 
         return {
-            "score": None,
-            "ct": [],
-            "t": [],
-            "raw": {},
-            "error": "OCR недоступен"
+            "score":None,
+            "ct":[],
+            "t":[]
         }
 
 
-
-    try:
-
-        img = _to_pil(image).convert(
-            "RGB"
-        )
-
-    except Exception as e:
-
-        return {
-            "score": None,
-            "ct": [],
-            "t": [],
-            "raw": {},
-            "error": str(e)
-        }
+    img=_to_pil(
+        image
+    ).convert(
+        "RGB"
+    )
 
 
+    w,h=img.size
 
 
-    w, h = img.size
-
-
-
-    # берём только таблицу игроков
-
-    table = img.crop(
+    board=img.crop(
         (
             0,
-            int(h * 0.25),
+            int(h*0.20),
             w,
-            int(h * 0.75)
+            int(h*0.75)
         )
     )
 
 
-
-    tw, th = table.size
-
+    bw,bh=board.size
 
 
-    left = table.crop(
+    left=board.crop(
         (
             0,
             0,
-            int(tw * 0.52),
-            th
+            int(bw*0.52),
+            bh
         )
     )
 
 
-    right = table.crop(
+    right=board.crop(
         (
-            int(tw * 0.48),
+            int(bw*0.48),
             0,
-            tw,
-            th
+            bw,
+            bh
         )
     )
 
 
 
-    try:
-
-        ct, ct_raw = _ocr_side(
-            left,
-            "CT"
-        )
+    ct,_=_ocr_side(
+        left,
+        "CT"
+    )
 
 
-        t, t_raw = _ocr_side(
-            right,
-            "T"
-        )
-
-
-        score = _parse_match_score(
-            img
-        )
-
-
-    except Exception as e:
-
-        return {
-            "score": None,
-            "ct": [],
-            "t": [],
-            "raw": {},
-            "error": str(e)
-        }
-
-
+    tt,_=_ocr_side(
+        right,
+        "T"
+    )
 
 
     return {
 
-        "score": score,
+        "score":_get_score(img),
 
-        "ct": ct,
+        "ct":ct,
 
-        "t": t,
-
-        "raw": {
-            "left": ct_raw,
-            "right": t_raw
-        }
+        "t":tt
 
     }
 
 
 
+def ocr_match_result(image):
 
 
-# Совместимость со старым ботом
-
-def ocr_match_result(image_input):
-
-
-    result = parse_standoff_scoreboard(
-        image_input
+    result=parse_standoff_scoreboard(
+        image
     )
 
 
-    players = []
+    players=[]
 
 
-    for p in result["ct"] + result["t"]:
+    for p in result["ct"]+result["t"]:
 
+        players.append({
 
-        players.append(
-            {
-                "nickname": p["nick"],
+            "nickname":p["nick"],
 
-                "kills": p["kills"],
+            "kills":p["kills"],
 
-                "deaths": p["deaths"],
+            "deaths":p["deaths"],
 
-                "assists": p["assists"],
+            "assists":p["assists"],
 
-                "score": p["score"]
-            }
-        )
+            "score":p["score"]
+
+        })
 
 
 
     return {
 
-        "raw_text":
-            result["raw"]["left"]
-            + "\n"
-            + result["raw"]["right"],
+        "match_score":result["score"],
 
+        "players":players
 
-        "match_score":
-            result["score"],
-
-
-        "players":
-            players
     }
-
-
-
-
-
-if __name__ == "__main__":
-
-
-    import sys
-
-
-    for file in sys.argv[1:]:
-
-
-        print(
-            "\n======",
-            file,
-            "======"
-        )
-
-
-        r = parse_standoff_scoreboard(
-            file
-        )
-
-
-        print(
-            "Счёт:",
-            r["score"]
-        )
-
-
-        for team in ("ct", "t"):
-
-
-            print(
-                team.upper()
-            )
-
-
-            for p in r[team]:
-
-                print(
-                    p["nick"],
-                    p["kills"],
-                    p["assists"],
-                    p["deaths"],
-                    p["score"]
-                )
