@@ -1,85 +1,114 @@
 """
-Standoff 2 scoreboard OCR
+Standoff 2 Scoreboard OCR
 K / A / D / Score / Ping
+Maps detection
 """
 
 from __future__ import annotations
 
 import io
-import os
 import re
-from typing import Any
+import os
 
 from PIL import Image, ImageOps
+
 
 try:
     import pytesseract
     from pytesseract import Output
+
     OCR_AVAILABLE = True
+
 except ImportError:
+
     pytesseract = None
     Output = None
     OCR_AVAILABLE = False
 
 
+
 if OCR_AVAILABLE and os.name == "nt":
+
     pytesseract.pytesseract.tesseract_cmd = (
         r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     )
 
 
-HEADER_WORDS = (
-    "имя",
-    "деньги",
-    "счет",
-    "счёт",
-    "пинг",
-    "оборона",
-    "атака",
-    "турнир",
-    "овертайм"
-)
+
+MAPS = [
+    "Dune",
+    "Hanami",
+    "Province",
+    "Prison",
+    "Sandstone",
+    "Breeze",
+    "Rust"
+]
 
 
-def _to_pil(image: Any):
+
+def _to_pil(image):
+
     if isinstance(image, Image.Image):
+
         return image
 
+
     if isinstance(image, bytes):
-        return Image.open(io.BytesIO(image))
+
+        return Image.open(
+            io.BytesIO(image)
+        )
+
 
     if isinstance(image, str):
+
         return Image.open(image)
 
-    raise TypeError("bad image")
+
+    raise TypeError(
+        "Unsupported image"
+    )
 
 
-def _preprocess(img):
+
+def _preprocess(img, scale=3):
 
     w, h = img.size
 
-    img = img.convert("L")
+
+    img = img.convert(
+        "L"
+    )
+
 
     img = img.resize(
-        (w * 3, h * 3),
+        (
+            w * scale,
+            h * scale
+        ),
         Image.LANCZOS
     )
+
 
     img = ImageOps.autocontrast(
         img
     )
 
+
     return img
 
 
 
-def _clean_nick(text):
+
+def _clean_text(text):
 
     text = re.sub(
-        r"[^A-Za-zА-Яа-яЁё0-9_\[\]\- ]",
+        r"[^A-Za-zА-Яа-яЁё0-9_\-\[\] ]",
         " ",
         text
     )
+
 
     text = re.sub(
         r"\s+",
@@ -87,7 +116,9 @@ def _clean_nick(text):
         text
     )
 
+
     return text.strip()
+
 
 
 
@@ -95,27 +126,40 @@ def _group_lines(data):
 
     words=[]
 
-    total=len(data["text"])
 
-    for i in range(total):
+    for i in range(len(data["text"])):
 
         txt=data["text"][i].strip()
+
 
         if not txt:
             continue
 
 
         words.append({
+
             "text":txt,
+
             "x":data["left"][i],
+
             "y":data["top"][i],
+
+            "w":data["width"][i],
+
             "h":data["height"][i],
-            "cy":data["top"][i]+data["height"][i]/2
+
+            "cy":
+            data["top"][i]
+            +
+            data["height"][i]/2
+
         })
 
 
     if not words:
+
         return []
+
 
 
     words.sort(
@@ -126,15 +170,23 @@ def _group_lines(data):
     lines=[]
 
     current=[]
+
     last_y=None
 
 
-    for w in words:
 
-        if last_y is None or abs(w["cy"]-last_y)<20:
+    for word in words:
 
-            current.append(w)
-            last_y=w["cy"]
+
+        if (
+            last_y is None
+            or abs(word["cy"]-last_y)<25
+        ):
+
+            current.append(word)
+
+            last_y=word["cy"]
+
 
         else:
 
@@ -145,11 +197,14 @@ def _group_lines(data):
                 )
             )
 
-            current=[w]
-            last_y=w["cy"]
+            current=[word]
+
+            last_y=word["cy"]
+
 
 
     if current:
+
         lines.append(
             sorted(
                 current,
@@ -159,41 +214,41 @@ def _group_lines(data):
 
 
     return lines
+    def _parse_player(line, side):
 
-
-
-def _parse_player(line, side):
-
-    text=" ".join(
+    text = " ".join(
         x["text"] for x in line
     )
 
+    low = text.lower()
 
-    low=text.lower()
 
-
-    for h in HEADER_WORDS:
-
-        if h in low:
-            return None
+    if "имя" in low or "деньги" in low:
+        return None
 
 
 
-    nums=[]
+    numbers=[]
 
 
     for word in line:
 
         t=word["text"]
 
-        # игнорируем деньги
+
+        # убираем деньги
         if "$" in t:
             continue
 
 
+        # заменяем ошибки OCR
+        t=t.replace("O","0")
+        t=t.replace("I","1")
+
+
         if t.isdigit():
 
-            nums.append(
+            numbers.append(
                 (
                     word["x"],
                     int(t)
@@ -202,17 +257,22 @@ def _parse_player(line, side):
 
 
 
-    if len(nums)<5:
+    # нужны только K A D SCORE PING
+
+    if len(numbers)<5:
+
         return None
 
 
 
-    values=[
-        x[1] for x in nums[-5:]
-    ]
+    values = numbers[-5:]
 
 
-    kills, assists, deaths, score, ping = values
+    kills = values[0][1]
+    assists = values[1][1]
+    deaths = values[2][1]
+    score = values[3][1]
+    ping = values[4][1]
 
 
 
@@ -233,18 +293,23 @@ def _parse_player(line, side):
 
 
 
-    first_stat_x=nums[-5][0]
+    stat_x = values[0][0]
 
 
-    nick=" ".join(
-        x["text"]
-        for x in line
-        if x["x"] < first_stat_x
-    )
+    nick_parts=[]
 
 
-    nick=_clean_nick(
-        nick
+    for w in line:
+
+        if w["x"] < stat_x:
+
+            nick_parts.append(
+                w["text"]
+            )
+
+
+    nick=_clean_text(
+        " ".join(nick_parts)
     )
 
 
@@ -252,21 +317,29 @@ def _parse_player(line, side):
     return {
 
         "side":side,
+
         "nick":nick or "?",
+
         "money":None,
 
         "kills":kills,
+
         "assists":assists,
+
         "deaths":deaths,
 
         "score":score,
+
         "ping":ping
 
     }
 
 
 
+
+
 def _ocr_side(img, side):
+
 
     img=_preprocess(
         img
@@ -288,24 +361,23 @@ def _ocr_side(img, side):
     )
 
 
-    lines=_group_lines(
-        data
-    )
-
 
     players=[]
 
 
-    for line in lines:
+    for line in _group_lines(data):
 
-        player=_parse_player(
+
+        p=_parse_player(
             line,
             side
         )
 
-        if player:
+
+        if p:
+
             players.append(
-                player
+                p
             )
 
 
@@ -313,7 +385,10 @@ def _ocr_side(img, side):
 
 
 
+
+
 def _get_score(img):
+
 
     w,h=img.size
 
@@ -321,9 +396,9 @@ def _get_score(img):
     crop=img.crop(
         (
             int(w*0.42),
-            int(h*0.12),
+            int(h*0.08),
             int(w*0.58),
-            int(h*0.25)
+            int(h*0.22)
         )
     )
 
@@ -347,10 +422,91 @@ def _get_score(img):
 
     if len(nums)>=2:
 
-        return f"{nums[0]}:{nums[1]}"
+        return (
+            nums[0]
+            +
+            ":"
+            +
+            nums[1]
+        )
 
 
     return None
+
+
+
+
+
+def _get_map(img):
+
+
+    w,h=img.size
+
+
+    crop=img.crop(
+        (
+            0,
+            int(h*0.82),
+            int(w*0.6),
+            h
+        )
+    )
+
+
+    crop=_preprocess(
+        crop
+    )
+
+
+    text=pytesseract.image_to_string(
+        crop,
+        lang="eng+rus",
+        config="--psm 7"
+    ).lower()
+
+
+
+    for m in MAPS:
+
+        if m.lower() in text:
+
+            return m
+
+
+
+    fixes={
+
+        "dun":"Dune",
+
+        "dune":"Dune",
+
+        "hanami":"Hanami",
+
+        "rust":"Rust",
+
+        "province":"Province",
+
+        "prison":"Prison",
+
+        "sandstone":"Sandstone",
+
+        "breeze":"Breeze"
+
+    }
+
+
+
+    for k,v in fixes.items():
+
+        if k in text:
+
+            return v
+
+
+
+    return None
+
+
 
 
 
@@ -360,10 +516,17 @@ def parse_standoff_scoreboard(image):
     if not OCR_AVAILABLE:
 
         return {
+
+            "map":None,
+
             "score":None,
+
             "ct":[],
+
             "t":[]
+
         }
+
 
 
     img=_to_pil(
@@ -376,10 +539,11 @@ def parse_standoff_scoreboard(image):
     w,h=img.size
 
 
+
     board=img.crop(
         (
             0,
-            int(h*0.20),
+            int(h*0.25),
             w,
             int(h*0.75)
         )
@@ -387,6 +551,7 @@ def parse_standoff_scoreboard(image):
 
 
     bw,bh=board.size
+
 
 
     left=board.crop(
@@ -422,7 +587,10 @@ def parse_standoff_scoreboard(image):
     )
 
 
+
     return {
+
+        "map":_get_map(img),
 
         "score":_get_score(img),
 
@@ -434,10 +602,12 @@ def parse_standoff_scoreboard(image):
 
 
 
+
+
 def ocr_match_result(image):
 
 
-    result=parse_standoff_scoreboard(
+    r=parse_standoff_scoreboard(
         image
     )
 
@@ -445,7 +615,7 @@ def ocr_match_result(image):
     players=[]
 
 
-    for p in result["ct"]+result["t"]:
+    for p in r["ct"]+r["t"]:
 
         players.append({
 
@@ -465,7 +635,9 @@ def ocr_match_result(image):
 
     return {
 
-        "match_score":result["score"],
+        "match_score":r["score"],
+
+        "map":r["map"],
 
         "players":players
 
