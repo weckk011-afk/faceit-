@@ -15,6 +15,13 @@ from PIL import Image, ImageDraw, ImageFont
 import config
 from database import Database
 
+# Точный OCR-парсер таблицы Standoff 2.
+try:
+    from ocr import parse_standoff_scoreboard, OCR_AVAILABLE as STANDOFF_OCR_AVAILABLE
+except ImportError:
+    parse_standoff_scoreboard = None
+    STANDOFF_OCR_AVAILABLE = False
+
 # pytesseract - опциональная зависимость для распознавания скриншотов.
 # Установка: pip install pytesseract  +  на сервере нужен бинарник tesseract-ocr
 # (apt install tesseract-ocr tesseract-ocr-rus). Если не установлено - OCR
@@ -1034,7 +1041,8 @@ class FaceitLikeBot(commands.Bot):
         sub = pending_submissions.get(message.channel.id)
         if sub and sub.status == "collecting" and message.attachments:
             image_attachment = next(
-                (a for a in message.attachments if a.content_type and a.content_type.startswith("image/")), None
+                (a for a in message.attachments
+                 if a.content_type and a.content_type.startswith("image/")), None
             )
             if image_attachment:
                 sub.status = "processing"
@@ -1043,41 +1051,83 @@ class FaceitLikeBot(commands.Bot):
 
                 try:
                     image_bytes = await image_attachment.read()
-                    text = ocr_image_to_text(image_bytes)
-                    parsed = parse_scoreboard_text(text)
 
-                    if parsed["map"]:
+                    so2_rows: list = []
+                    if STANDOFF_OCR_AVAILABLE:
+                        so2 = parse_standoff_scoreboard(image_bytes)
+                        ct_rows = [
+                            PlayerRow(name=p["nick"], k=str(p["kills"]),
+                                      d=str(p["deaths"]), a=str(p["assists"]),
+                                      rating=str(p["score"]))
+                            for p in so2.get("ct", [])
+                        ]
+                        t_rows = [
+                            PlayerRow(name=p["nick"], k=str(p["kills"]),
+                                      d=str(p["deaths"]), a=str(p["assists"]),
+                                      rating=str(p["score"]))
+                            for p in so2.get("t", [])
+                        ]
+                        so2_rows = ct_rows + t_rows
+
+                        if ct_rows or t_rows:
+                            sub.team_a = ct_rows
+                            sub.team_b = t_rows
+
+                        if so2.get("score"):
+                            sub.score = so2["score"]
+
+                        if so2_rows:
+                            def _rv(r):
+                                try:
+                                    return float(r.rating)
+                                except ValueError:
+                                    return 0.0
+
+                            best = max(so2_rows, key=_rv)
+                            sub.mvp = f"{best.name} ({best.rating})"
+
+                    # Fallback на старый парсер
+                    parsed = {"map": None, "score": None, "rows": [], "mvp": None}
+
+                    if not so2_rows:
+                        text = ocr_image_to_text(image_bytes)
+                        parsed = parse_scoreboard_text(text)
+
+                        if parsed["score"]:
+                            sub.score = parsed["score"]
+
+                        if parsed["rows"]:
+                            sub.team_a = parsed["rows"][:5]
+                            sub.team_b = parsed["rows"][5:10]
+
+                        if parsed["mvp"]:
+                            sub.mvp = parsed["mvp"]
+
+                    if parsed.get("map"):
                         sub.map_name = parsed["map"]
-                    if parsed["score"]:
-                        sub.score = parsed["score"]
-                    if parsed["rows"]:
-                        sub.team_a = parsed["rows"][:5]
-                        sub.team_b = parsed["rows"][5:10]
-                    if parsed["mvp"]:
-                        sub.mvp = parsed["mvp"]
 
                     sub.status = "pending_review"
 
                     if not OCR_AVAILABLE:
                         await processing_msg.edit(
-                            content="⚠️ OCR не установлен на сервере, данные не распознаны автоматически. "
-                            "Заявка отправлена админам — заполните вручную через «Редактировать»."
+                            content="⚠️ OCR не установлен на сервере. Заполните вручную."
                         )
-                    elif not parsed["rows"]:
+                    elif not (so2_rows or parsed["rows"]):
                         await processing_msg.edit(
-                            content="⚠️ Не удалось уверенно распознать таблицу игроков. "
-                            "Заявка отправлена админам на ручную проверку/редактирование."
+                            content="⚠️ Не удалось распознать таблицу. Заявка на ручную проверку."
                         )
                     else:
-                        await processing_msg.edit(content="✅ Скриншот обработан, заявка отправлена администраторам на проверку.")
+                        await processing_msg.edit(
+                            content="✅ Скриншот обработан, заявка отправлена админам."
+                        )
 
                     await send_review_request(self, sub)
+
                 except Exception as e:
-                    logging.error(f"Ошибка распознавания скриншота: {e}", exc_info=True)
+                    logging.error(f"Ошибка распознавания: {e}", exc_info=True)
                     sub.status = "pending_review"
                     await processing_msg.edit(
-                        content="⚠️ Произошла ошибка распознавания. Заявка всё равно отправлена админам — "
-                        "заполните данные вручную через «Редактировать»."
+                        content="⚠️ Ошибка распознавания. Заполните вручную."
                     )
                     await send_review_request(self, sub)
 
